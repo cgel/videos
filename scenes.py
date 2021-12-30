@@ -26,8 +26,20 @@ f_text = 'f(x,y) = x^2 - y^2 -3xy - x'
 
 # the simplest version
 class SearchScene(Scene):
+    def setup(self):
+        # TODO: automate the low_q from config
+        self.low_q = True
+        self.grid_lag = 0.01
+        self.x_range = [-6, 6, 2]
+        self.x_steps = 10
+        self.y_range = [-6, 6, 2]
+        self.y_steps = 10
 
-    def draw_axes(self):
+        self.make_axes()
+        self.make_elevation_map()
+        self.make_grid()
+
+    def make_axes(self):
         # TODO: figure out why length and unit_size aren't working. Make axes squared
         self.axes = Axes( x_range = self.x_range,
                           y_range = self.y_range,
@@ -38,8 +50,7 @@ class SearchScene(Scene):
                                         'length': 1}
                         )
         self.labels = self.axes.get_axis_labels(x_label="x", y_label="y")
-        self.play(Create(self.axes))
-        self.play(FadeIn(self.labels))
+        self.create_axes_animation = AnimationGroup(Create(self.axes),  FadeIn(self.labels))
 
     def make_elevation_map(self):
         # Make the image full screen
@@ -66,13 +77,12 @@ class SearchScene(Scene):
         self.elev_img.set_z_index(self.axes.z_index -1)
         self.elev_img.add_updater(lambda img: img.move_to(self.axes.get_center()))
 
-    def make_gird(self):
+    def make_grid(self):
         # TODO: move to setup
-        self.points_per_axis = 10
         # TODO: using the same buffer for x and y looks weird since screen isn't a square
         buff = 0.3
-        x_positions = np.linspace(-config.frame_width/2 + buff, config.frame_width/2 -buff, self.points_per_axis)
-        y_positions = np.linspace(-config.frame_height/2 + buff, config.frame_height/2 - buff, self.points_per_axis)
+        x_positions = np.linspace(-config.frame_width/2 + buff, config.frame_width/2 -buff, self.x_steps)
+        y_positions = np.linspace(-config.frame_height/2 + buff, config.frame_height/2 - buff, self.y_steps)
         self.grid_coords = []
         for y_p in y_positions:
             for x_p in x_positions:
@@ -83,19 +93,19 @@ class SearchScene(Scene):
         self.grid_colors = [color_map(val, np_mode=False) for val in self.grid_values]
 
     def sample_random_points(self, n):
-        return np.random.randint(0, len(self.grid_points), [n])
+        return list(np.random.randint(0, len(self.grid_points), [n]))
 
     def get_neighbors(self, i):
         left = i -1
         right = i +1
-        up = i - self.points_per_axis
-        down = i + self.points_per_axis
+        up = i + self.x_steps
+        down = i - self.x_steps
 
         neighbors = []
-        if left%self.points_per_axis != 0: neighbors.append(left)
-        if right%self.points_per_axis != self.points_per_axis - 1: neighbors.append(right)
-        if up >= 0: neighbors.append(up)
-        if down <= self.points_per_axis**2: neighbors.append(down)
+        if i%self.y_steps != 0: neighbors.append(left)
+        if i%self.y_steps!= self.x_steps - 1: neighbors.append(right)
+        if up < self.x_steps * self.y_steps: neighbors.append(up)
+        if down >= 0: neighbors.append(down)
         return neighbors
 
     def best_point(self, point_indices=None):
@@ -110,30 +120,33 @@ class SearchScene(Scene):
         anim = AnimationGroup(*reversed(fadeout_points_animation), lag_ratio = self.grid_lag)
         self.play(anim)
 
-    def fadein_points(self, point_indices=None, color_by_elevation=False):
+    def fadein_points(self, point_indices=None, color_by_elevation=False, run_time=1):
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
         if color_by_elevation:
             fadein_points_animation = [FadeIn(self.grid_points[i].set_fill(self.grid_colors[i])) for i in point_indices]
         else:
             fadein_points_animation = [FadeIn(self.grid_points[i].set_fill(WHITE)) for i in point_indices]
-        anim = AnimationGroup(*reversed(fadein_points_animation), lag_ratio = self.grid_lag)
+        anim = AnimationGroup(*reversed(fadein_points_animation), run_time=run_time, lag_ratio = self.grid_lag)
         self.play(anim)
 
-    def color_points(self, point_indices=None, color_by_elevation=True):
+    def color_points(self, point_indices=None, color_by_elevation=True, dark=False, run_time=1):
+        opacity = 0.3 if dark else 1.
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
         if color_by_elevation:
-            fadein_points_animation = [self.grid_points[i].animate.set_fill(self.grid_colors[i]) for i in point_indices]
+            fadein_points_animation = [self.grid_points[i].animate.set_fill(self.grid_colors[i]).set_opacity(opacity) for i in point_indices]
         else:
-            fadein_points_animation = [self.grid_points[i].animate.set_fill(WHITE) for i in point_indices]
-        anim = AnimationGroup(*reversed(fadein_points_animation), lag_ratio = self.grid_lag)
+            fadein_points_animation = [self.grid_points[i].animate.set_fill(WHITE).set_opacity(opacity) for i in point_indices]
+        anim = AnimationGroup(*reversed(fadein_points_animation), run_time=run_time, lag_ratio = self.grid_lag)
         self.play(anim)
 
     def darken_points_except_best(self, point_indices=None):
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
-        fade_out_points_animation = [self.grid_points[i].animate.set_opacity(0.3) for i in point_indices]
+        darken_points_animation = [self.grid_points[i].animate.set_opacity(0.3) for i in point_indices]
         best_point = self.best_point(point_indices)
-        del fade_out_points_animation[best_point]
-        self.play(AnimationGroup(*fade_out_points_animation))
+        del darken_points_animation[best_point]
+        darken_points_animation.append(self.grid_points[point_indices[best_point]].animate.set_opacity(1))
+        self.play(AnimationGroup(*darken_points_animation))
+        return best_point
 
     def get_arrows(self, origin, targets):
         arrows = []
@@ -145,24 +158,13 @@ class SearchScene(Scene):
         return arrows
 
 
-
 class BruteForce(SearchScene):
-
-    def construct(self, low_q=True):
-        # TODO: automate the low_q from config
-        self.low_q = low_q
-        self.grid_lag = 0.01
-        self.x_range = [-6, 6, 2]
-        self.y_range = [-6, 6, 2]
-
+    def construct(self):
+        self.play(self.create_axes_animation)
         # Full screen color map
-        self.draw_axes()
-        self.make_elevation_map()
         self.play(FadeIn(self.elev_img))
 
         # Display grid of grey dots
-        self.make_gird()
-        #self.play(self.fade_in_grid_animation)
         self.fadein_points(color_by_elevation=False)
         self.wait()
         self.play(FadeOut(self.elev_img))
@@ -173,35 +175,33 @@ class BruteForce(SearchScene):
         self.wait(2)
         self.fadeout_points()
 
-
-
 class LocalSearch(SearchScene):
-
-    def construct(self, low_q=True):
-        # TODO: automate the low_q from config
-        self.low_q = low_q
-        self.grid_lag = 0.01
-        self.x_range = [-6, 6, 2]
-        self.y_range = [-6, 6, 2]
-
-        # Full screen color map
-        self.draw_axes()
-        self.make_elevation_map()
+    def construct(self):
+        self.play(self.create_axes_animation)
 
         # Display grid of grey dots
-        self.make_gird()
         # Perform the measurement 1 by 1. The dots pick up the color.
-        random_point_indices = self.sample_random_points(5)
-        self.fadein_points(random_point_indices, color_by_elevation=True)
+        points = self.sample_random_points(3)
+        self.fadein_points(points, color_by_elevation=True)
         self.wait(1)
-        self.darken_points_except_best(random_point_indices)
-        i = random_point_indices[0]
-        neighbors = self.get_neighbors(i)
-        arrows = self.get_arrows(i, neighbors)
-        self.play(FadeIn(*arrows))
-        self.fadein_points(neighbors)
-        self.play(FadeOut(*arrows))
-        self.color_points(neighbors)
+
+        best_point = None
+        while True:
+            best = self.darken_points_except_best(points)
+            if points[best] == best_point: break
+            best_point = points[best]
+            neighbors = self.get_neighbors(best_point)
+            arrows = self.get_arrows(best_point, neighbors)
+            # If a neighbor is already in the dataset ignore it
+            neighbors = [n for n in neighbors if n not in points]
+            self.play(FadeIn(*arrows, run_time=0.3))
+            self.fadein_points(neighbors, run_time=0.5)
+            self.play(FadeOut(*arrows, run_time=0.3))
+            self.color_points(neighbors, dark=False, run_time=0.5)
+            points.extend(neighbors)
+
+        best = self.darken_points_except_best(points)
+        best_point = points[best]
 
 
 class TheCurseOfDimensionality(ThreeDScene):
