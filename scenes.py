@@ -67,25 +67,36 @@ class SearchScene(Scene):
         self.elev_img.add_updater(lambda img: img.move_to(self.axes.get_center()))
 
     def make_gird(self):
-        axis_points = 10
+        # TODO: move to setup
+        self.points_per_axis = 10
         # TODO: using the same buffer for x and y looks weird since screen isn't a square
         buff = 0.3
-        x_positions = np.linspace(-config.frame_width/2 + buff, config.frame_width/2 -buff, axis_points)
-        y_positions = np.linspace(-config.frame_height/2 + buff, config.frame_height/2 - buff, axis_points)
-        grid_coords = []
+        x_positions = np.linspace(-config.frame_width/2 + buff, config.frame_width/2 -buff, self.points_per_axis)
+        y_positions = np.linspace(-config.frame_height/2 + buff, config.frame_height/2 - buff, self.points_per_axis)
+        self.grid_coords = []
         for y_p in y_positions:
             for x_p in x_positions:
                 coords = self.axes.point_to_coords([x_p, y_p,0])
-                grid_coords.append(coords)
-        self.grid_points = VGroup(*[ Dot(self.axes.coords_to_point( *coord ), stroke_width=1., radius=0.1) for coord in grid_coords])
-        self.grid_values = [f(*coord) for coord in grid_coords]
+                self.grid_coords.append(coords)
+        self.grid_points = VGroup(*[ Dot(self.axes.coords_to_point( *coord ), stroke_width=1., radius=0.1) for coord in self.grid_coords])
+        self.grid_values = [f(*coord) for coord in self.grid_coords]
         self.grid_colors = [color_map(val, np_mode=False) for val in self.grid_values]
 
     def sample_random_points(self, n):
         return np.random.randint(0, len(self.grid_points), [n])
 
     def get_neighbors(self, i):
-        pass
+        left = i -1
+        right = i +1
+        up = i - self.points_per_axis
+        down = i + self.points_per_axis
+
+        neighbors = []
+        if left%self.points_per_axis != 0: neighbors.append(left)
+        if right%self.points_per_axis != self.points_per_axis - 1: neighbors.append(right)
+        if up >= 0: neighbors.append(up)
+        if down <= self.points_per_axis**2: neighbors.append(down)
+        return neighbors
 
     def best_point(self, point_indices=None):
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
@@ -99,17 +110,16 @@ class SearchScene(Scene):
         anim = AnimationGroup(*reversed(fadeout_points_animation), lag_ratio = self.grid_lag)
         self.play(anim)
 
-
     def fadein_points(self, point_indices=None, color_by_elevation=False):
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
         if color_by_elevation:
             fadein_points_animation = [FadeIn(self.grid_points[i].set_fill(self.grid_colors[i])) for i in point_indices]
         else:
-            fadein_points_animation = [FadeIn(point) for point in self.grid_points]
+            fadein_points_animation = [FadeIn(self.grid_points[i].set_fill(WHITE)) for i in point_indices]
         anim = AnimationGroup(*reversed(fadein_points_animation), lag_ratio = self.grid_lag)
         self.play(anim)
 
-    def color_points(self, point_indices=None, color_by_elevation=False):
+    def color_points(self, point_indices=None, color_by_elevation=True):
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
         if color_by_elevation:
             fadein_points_animation = [self.grid_points[i].animate.set_fill(self.grid_colors[i]) for i in point_indices]
@@ -125,6 +135,16 @@ class SearchScene(Scene):
         del fade_out_points_animation[best_point]
         self.play(AnimationGroup(*fade_out_points_animation))
 
+    def get_arrows(self, origin, targets):
+        arrows = []
+        for target in targets:
+            o = self.axes.c2p(*self.grid_coords[origin])
+            t = self.axes.c2p(*self.grid_coords[target])
+            arrow = Arrow(start=o, end=t, buff=0.2, color=GREY)
+            arrows.append(arrow)
+        return arrows
+
+
 
 class BruteForce(SearchScene):
 
@@ -134,10 +154,6 @@ class BruteForce(SearchScene):
         self.grid_lag = 0.01
         self.x_range = [-6, 6, 2]
         self.y_range = [-6, 6, 2]
-        print('top right', f(6,6))
-        print('top left', f(-6,6))
-        print('bottom right', f(6,-6))
-        print('bottom left', f(-6,-6))
 
         # Full screen color map
         self.draw_axes()
@@ -156,6 +172,36 @@ class BruteForce(SearchScene):
         self.darken_points_except_best()
         self.wait(2)
         self.fadeout_points()
+
+
+
+class LocalSearch(SearchScene):
+
+    def construct(self, low_q=True):
+        # TODO: automate the low_q from config
+        self.low_q = low_q
+        self.grid_lag = 0.01
+        self.x_range = [-6, 6, 2]
+        self.y_range = [-6, 6, 2]
+
+        # Full screen color map
+        self.draw_axes()
+        self.make_elevation_map()
+
+        # Display grid of grey dots
+        self.make_gird()
+        # Perform the measurement 1 by 1. The dots pick up the color.
+        random_point_indices = self.sample_random_points(5)
+        self.fadein_points(random_point_indices, color_by_elevation=True)
+        self.wait(1)
+        self.darken_points_except_best(random_point_indices)
+        i = random_point_indices[0]
+        neighbors = self.get_neighbors(i)
+        arrows = self.get_arrows(i, neighbors)
+        self.play(FadeIn(*arrows))
+        self.fadein_points(neighbors)
+        self.play(FadeOut(*arrows))
+        self.color_points(neighbors)
 
 
 class TheCurseOfDimensionality(ThreeDScene):
@@ -289,35 +335,6 @@ class ExponentialGrowth(Scene):
                     run_time=2,
                 )
         return axes
-
-
-
-
-class LocalSearch(SearchScene):
-
-    def construct(self, low_q=True):
-        # TODO: automate the low_q from config
-        self.low_q = low_q
-        self.grid_lag = 0.01
-        self.x_range = [-6, 6, 2]
-        self.y_range = [-6, 6, 2]
-        print('top right', f(6,6))
-        print('top left', f(-6,6))
-        print('bottom right', f(6,-6))
-        print('bottom left', f(-6,-6))
-
-        # Full screen color map
-        self.draw_axes()
-        self.make_elevation_map()
-
-        # Display grid of grey dots
-        self.make_gird()
-        # Perform the measurement 1 by 1. The dots pick up the color.
-        random_point_indices = self.sample_random_points(5)
-        self.draw_points_by_elevation(random_point_indices)
-        self.wait(1)
-        self.fade_points_except_best(random_point_indices)
-
 
 
 
