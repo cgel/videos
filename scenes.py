@@ -372,62 +372,51 @@ class TheGradient(ZoomedScene, SearchScene):
         )
 
     def point_and_neighbors(self, scale_tracker, center_pos=[0,0]):
-        radius = 0.3
-        circle_stroke_width=6
+        # Some very strange behaviours here with the add_updater functions.
+        # If I call add_updater in a for loop over a list of MObjects or a VGroup, something fails. (except sometimes it doesn't)
+        # Seems like if I give the exact same update function to all the elements, then it's fine. Otherwise I need to unroll the full loop manually
+        radius = 0.2
+        circle_stroke_width=0
         center = Dot(center_pos, stroke_width=circle_stroke_width, radius=radius, color=WHITE)
-        #center = Circle(stroke_width=circle_stroke_width, radius=radius, color=WHITE).move_to(center_pos)
         # up down left right
         neighbors = [Dot(stroke_width=circle_stroke_width, radius=radius) for _ in range(4)]
-        #neighbors = [Circle(stroke_width=circle_stroke_width, radius=radius) for _ in range(4)]
+        neighbors = VGroup(*neighbors)
         neighbors[0].add_updater(lambda ob: ob.next_to(center, UP*scale_tracker.get_value()))
         neighbors[1].add_updater(lambda ob: ob.next_to(center, DOWN*scale_tracker.get_value()))
         neighbors[2].add_updater(lambda ob: ob.next_to(center, LEFT*scale_tracker.get_value()))
         neighbors[3].add_updater(lambda ob: ob.next_to(center, RIGHT*scale_tracker.get_value()))
 
         center.add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
-        neighbors[0].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
-        neighbors[1].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
-        neighbors[2].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
-        neighbors[3].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
+        for neighbor in neighbors: neighbor.add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
 
         def is_best_neighbor(i):
             values = [f(*self.axes.p2c(neighbors[j].get_center())) for j in range(4)]
             return i == np.argmin(values)
 
-        neighbors[0].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(0) else WHITE))
-        neighbors[1].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(1) else WHITE))
-        neighbors[2].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(2) else WHITE))
-        neighbors[3].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(3) else WHITE))
-        # WTF The line below doesn't work. Only the updater of the last index gets called when using a for loop
-        # for i in range(len(neighbors)):
-            #neighbors[i].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(i) else WHITE))
-        # TODO: figure out why setting up the updaters with for loops breaks
+        neighbors[0].add_updater(lambda ob, dt: ob.set_color( YELLOW if is_best_neighbor(0) else WHITE), call_updater=True)
+        neighbors[1].add_updater(lambda ob, dt: ob.set_color( YELLOW if is_best_neighbor(1) else WHITE), call_updater=True)
+        neighbors[2].add_updater(lambda ob, dt: ob.set_color( YELLOW if is_best_neighbor(2) else WHITE), call_updater=True)
+        neighbors[3].add_updater(lambda ob, dt: ob.set_color( YELLOW if is_best_neighbor(3) else WHITE), call_updater=True)
+
         line_stroke_width=4
         lines = [ Line(stroke_width=line_stroke_width) for point in neighbors]
-        s_radius = radius-0.05
-        lines[0].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + UP*s_radius, DOWN*s_radius + neighbors[0].get_center()))
-        lines[1].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + DOWN*s_radius, UP*s_radius + neighbors[1].get_center()))
-        lines[2].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + LEFT*s_radius, RIGHT*s_radius +neighbors[2].get_center()))
-        lines[3].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + RIGHT*s_radius, LEFT*s_radius + neighbors[3].get_center()))
+        lines = VGroup(*lines)
+        lines[0].add_updater(lambda ob: ob.put_start_and_end_on(center.get_top(), neighbors[0].get_center()))
+        lines[1].add_updater(lambda ob: ob.put_start_and_end_on(center.get_bottom(), neighbors[1].get_center()))
+        lines[2].add_updater(lambda ob: ob.put_start_and_end_on(center.get_left(), neighbors[2].get_center()))
+        lines[3].add_updater(lambda ob: ob.put_start_and_end_on(center.get_right(), neighbors[3].get_center()))
 
         lines[0].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(0) else WHITE))
         lines[1].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(1) else WHITE))
         lines[2].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(2) else WHITE))
         lines[3].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(3) else WHITE))
 
-        lines[0].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
-        lines[1].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
-        lines[2].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
-        lines[3].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
-        # for i in range(len(neighbors)):
-        #     lines[i].add_updater(lambda ob: ob.set_color( print('line up ', i)))
-            #lines[i].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center(), neighbors[i].get_center()))
-            #lines[i].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(i) else WHITE))
+        for i, line in enumerate(lines):
+            line.add_updater(lambda ob, dt: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()), call_updater=True )
 
         return center, neighbors, lines
 
     def construct(self):
-
         self.play(self.create_axes_animation)
         # Full screen color map
         self.play(FadeIn(self.elev_img))
@@ -443,38 +432,28 @@ class TheGradient(ZoomedScene, SearchScene):
 
         center_pos = self.axes.c2p(*[-5, -3,0])
 
-        zd_camera_frame.move_to([-2,2,0])
-        # zd_camera_frame.move_to(center_pos)
-        #frame.set_color(PURPLE)
-        #zoomed_display_frame.set_color(RED)
-        #zoomed_display.shift(DOWN)
-
-
+        zd_camera_frame.move_to(center_pos)
 
         # Show best neighbor change as grid decreases (only 4 neighbors)
         # No matter which point we are looking at, the process will converge to a neighbor. You can keep making the grid smaller, but the best direction will remain unchanged
-        scale_tracker = ValueTracker(1.5)
+        scale_tracker = ValueTracker(1)
         center, neighbors, lines = self.point_and_neighbors(scale_tracker, center_pos=center_pos)
-        self.add(center, *neighbors, *lines)
-        self.wait()
+        self.play(FadeIn(neighbors, lines, center))
+
         #self.play(center.animate.move_to([-5,1,0]))
 
-
-
         # Ultimately, this is due to the fact that all differentiable functions become linear if you zoom in far enough
-        self.add(Square())
         zd_rect = BackgroundRectangle(zd_display, fill_opacity=0, buff=MED_SMALL_BUFF)
         self.add_foreground_mobject(zd_rect)
         unfold_camera = UpdateFromFunc(zd_rect, lambda rect: rect.replace(zd_display))
         self.play(Create(zd_camera_frame))
-        return
         self.activate_zooming()
         self.play(self.get_zoomed_display_pop_out_animation())
 
-
         # As the step size become smaller, the best direction might change.
-        self.play(scale_tracker.animate.set_value(0.5), run_time=3)
+        self.play(scale_tracker.animate.set_value(0.2), run_time=3)
 
+        return
         # This is because any differentiable function becomes linear if you zoom deep enough
 
         self.play(zd_camera_frame.animate.move_to([-2, -2.5,0]), run_time=3)
