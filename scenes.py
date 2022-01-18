@@ -1,11 +1,12 @@
 from manim import *
 from colour import Color
+from math import sin, cos, sqrt
 
+def normalize_val(val, min, max): return 150*(val-min)/(max - min)
 
 def color_map(val, np_mode=True):
-    val = val/3 + 20
     # Above 200 the color starts to look redish, looping back to value 0
-    if val >= 200 or val <= 0: print('Warning: value out of bounds for coloring ', val)
+    if val >= 200 or val < 0: print('Warning: value out of bounds for coloring ', val)
     hsl_color =  np.float32([val/255,0.5,0.5])
     rgb_color = np.float32(Color(hsl=hsl_color).rgb) * 255
 #    rgb_color = rgb_color.astype(np.uint8)
@@ -17,10 +18,14 @@ def color_map(val, np_mode=True):
 def poly(x,y,z=0):
     return  4*x**2 + y**2 -2*x*y - x + y
 
-f = poly
-#f_text = 'f(x,y) = x^2 + y^2'
-f_text = 'f(x,y) = x^2 - y^2 -3xy - x'
+def sym_poly(x,y,z=0):
+    return (x**4)*(y**2) + (x**2)*(y**4) - 80*(x**2)*(y**2) + 10 *x - 6*y
 
+def wavey(x,y,z=0):
+    x -= 4
+    return sin(x/3) + cos( (x+y)/3 )**2 + (y)**2/100
+
+f = wavey
 
 # Potentially a Scene introducing how to read an elevation map
 
@@ -31,8 +36,10 @@ class SearchScene(Scene):
         self.low_q = True
         self.grid_lag = 0.01
         self.x_range = [-6, 6, 2]
+        #self.x_range = [-2, 2, 1]
         self.x_steps = 10
         self.y_range = [-6, 6, 2]
+        #self.y_range = [-2, 2, 1]
         self.y_steps = 10
 
         self.make_axes()
@@ -44,7 +51,7 @@ class SearchScene(Scene):
         self.axes = Axes( x_range = self.x_range,
                           y_range = self.y_range,
                           tips = False,
-                          axis_config={'include_numbers': False,
+                          axis_config={'include_numbers': True,
                                         'include_tip': False,
                                         #'unit_size': 0.5},
                                         'length': 1}
@@ -56,12 +63,11 @@ class SearchScene(Scene):
         # Make the image full screen
         img_width = config.frame_width
         img_height = config.frame_height
-        res_downsample = 10 if self.low_q else 1
+        res_downsample = 5 if self.low_q else 1
         img_pixel_width = config.pixel_width//res_downsample
         img_pixel_height = config.pixel_height//res_downsample
 
         elev_np = np.empty([img_pixel_height,img_pixel_width])
-        elev_color_np = np.empty([img_pixel_height,img_pixel_width,3], dtype=np.uint8)
         for i in range(img_pixel_height):
             for j in range(img_pixel_width):
                 # Assumes image is centered
@@ -70,7 +76,12 @@ class SearchScene(Scene):
                                     0]
                 coords = self.axes.point_to_coords(point_in_screen)
                 elev_np[i,j] = f(*coords)
-                elev_color_np[i,j] = color_map( elev_np[i,j] )
+        self.min_v = np.min(elev_np)
+        self.max_v = np.max(elev_np)
+        elev_color_np = np.empty([img_pixel_height,img_pixel_width,3], dtype=np.uint8)
+        for i in range(img_pixel_height):
+            for j in range(img_pixel_width):
+                elev_color_np[i,j] = color_map( normalize_val(elev_np[i,j], self.min_v, self.max_v) )
 
         self.elev_img = ImageMobject(elev_color_np)
         self.elev_img.height = config.frame_height
@@ -90,7 +101,7 @@ class SearchScene(Scene):
                 self.grid_coords.append(coords)
         self.grid_points = VGroup(*[ Dot(self.axes.coords_to_point( *coord ), stroke_width=1., radius=0.1) for coord in self.grid_coords])
         self.grid_values = [f(*coord) for coord in self.grid_coords]
-        self.grid_colors = [color_map(val, np_mode=False) for val in self.grid_values]
+        self.grid_colors = [color_map( normalize_val(val, self.min_v, self.max_v), np_mode=False) for val in self.grid_values]
 
     def sample_random_points(self, n):
         return list(np.random.randint(0, len(self.grid_points), [n]))
@@ -338,6 +349,150 @@ class ExponentialGrowth(Scene):
 
 
 
-class TheGradient(Scene):
     def construct(self):
         pass
+
+
+        # Zoom effect. Grid is smaller, function becomes linear.
+
+
+class TheGradient(ZoomedScene, SearchScene):
+# contributed by TheoremofBeethoven, www.youtube.com/c/TheoremofBeethoven
+    def __init__(self, **kwargs):
+        ZoomedScene.__init__(
+            self,
+            zoom_factor=0.5,
+            zoomed_display_height=4,
+            zoomed_display_width=4,
+            image_frame_stroke_width=20,
+            zoomed_camera_config={
+                "default_frame_stroke_width": 3,
+                },
+            **kwargs
+        )
+
+    def point_and_neighbors(self, scale_tracker, center_pos=[0,0]):
+        radius = 0.3
+        circle_stroke_width=6
+        center = Dot(center_pos, stroke_width=circle_stroke_width, radius=radius, color=WHITE)
+        #center = Circle(stroke_width=circle_stroke_width, radius=radius, color=WHITE).move_to(center_pos)
+        # up down left right
+        neighbors = [Dot(stroke_width=circle_stroke_width, radius=radius) for _ in range(4)]
+        #neighbors = [Circle(stroke_width=circle_stroke_width, radius=radius) for _ in range(4)]
+        neighbors[0].add_updater(lambda ob: ob.next_to(center, UP*scale_tracker.get_value()))
+        neighbors[1].add_updater(lambda ob: ob.next_to(center, DOWN*scale_tracker.get_value()))
+        neighbors[2].add_updater(lambda ob: ob.next_to(center, LEFT*scale_tracker.get_value()))
+        neighbors[3].add_updater(lambda ob: ob.next_to(center, RIGHT*scale_tracker.get_value()))
+
+        center.add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
+        neighbors[0].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
+        neighbors[1].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
+        neighbors[2].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
+        neighbors[3].add_updater(lambda ob: ob.set(height=radius*scale_tracker.get_value()))
+
+        def is_best_neighbor(i):
+            values = [f(*self.axes.p2c(neighbors[j].get_center())) for j in range(4)]
+            return i == np.argmin(values)
+
+        neighbors[0].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(0) else WHITE))
+        neighbors[1].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(1) else WHITE))
+        neighbors[2].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(2) else WHITE))
+        neighbors[3].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(3) else WHITE))
+        # WTF The line below doesn't work. Only the updater of the last index gets called when using a for loop
+        # for i in range(len(neighbors)):
+            #neighbors[i].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(i) else WHITE))
+        # TODO: figure out why setting up the updaters with for loops breaks
+        line_stroke_width=4
+        lines = [ Line(stroke_width=line_stroke_width) for point in neighbors]
+        s_radius = radius-0.05
+        lines[0].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + UP*s_radius, DOWN*s_radius + neighbors[0].get_center()))
+        lines[1].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + DOWN*s_radius, UP*s_radius + neighbors[1].get_center()))
+        lines[2].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + LEFT*s_radius, RIGHT*s_radius +neighbors[2].get_center()))
+        lines[3].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center() + RIGHT*s_radius, LEFT*s_radius + neighbors[3].get_center()))
+
+        lines[0].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(0) else WHITE))
+        lines[1].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(1) else WHITE))
+        lines[2].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(2) else WHITE))
+        lines[3].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(3) else WHITE))
+
+        lines[0].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
+        lines[1].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
+        lines[2].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
+        lines[3].add_updater(lambda ob: ob.set(stroke_width=line_stroke_width*scale_tracker.get_value()) )
+        # for i in range(len(neighbors)):
+        #     lines[i].add_updater(lambda ob: ob.set_color( print('line up ', i)))
+            #lines[i].add_updater(lambda ob: ob.put_start_and_end_on(center.get_center(), neighbors[i].get_center()))
+            #lines[i].add_updater(lambda ob: ob.set_color( YELLOW if is_best_neighbor(i) else WHITE))
+
+        return center, neighbors, lines
+
+    def construct(self):
+
+        self.play(self.create_axes_animation)
+        # Full screen color map
+        self.play(FadeIn(self.elev_img))
+
+        # Display grid of grey dots
+        #self.fadein_points(color_by_elevation=False)
+        self.wait()
+
+        zd_camera = self.zoomed_camera
+        zd_camera_frame = zd_camera.frame
+        zd_display = self.zoomed_display
+        zd_display_frame = zd_display.display_frame
+
+        center_pos = self.axes.c2p(*[-5, -3,0])
+
+        zd_camera_frame.move_to([-2,2,0])
+        # zd_camera_frame.move_to(center_pos)
+        #frame.set_color(PURPLE)
+        #zoomed_display_frame.set_color(RED)
+        #zoomed_display.shift(DOWN)
+
+
+
+        # Show best neighbor change as grid decreases (only 4 neighbors)
+        # No matter which point we are looking at, the process will converge to a neighbor. You can keep making the grid smaller, but the best direction will remain unchanged
+        scale_tracker = ValueTracker(1.5)
+        center, neighbors, lines = self.point_and_neighbors(scale_tracker, center_pos=center_pos)
+        self.add(center, *neighbors, *lines)
+        self.wait()
+        #self.play(center.animate.move_to([-5,1,0]))
+
+
+
+        # Ultimately, this is due to the fact that all differentiable functions become linear if you zoom in far enough
+        self.add(Square())
+        zd_rect = BackgroundRectangle(zd_display, fill_opacity=0, buff=MED_SMALL_BUFF)
+        self.add_foreground_mobject(zd_rect)
+        unfold_camera = UpdateFromFunc(zd_rect, lambda rect: rect.replace(zd_display))
+        self.play(Create(zd_camera_frame))
+        return
+        self.activate_zooming()
+        self.play(self.get_zoomed_display_pop_out_animation())
+
+
+        # As the step size become smaller, the best direction might change.
+        self.play(scale_tracker.animate.set_value(0.5), run_time=3)
+
+        # This is because any differentiable function becomes linear if you zoom deep enough
+
+        self.play(zd_camera_frame.animate.move_to([-2, -2.5,0]), run_time=3)
+        self.play(zd_camera_frame.animate.move_to([-4, 2,0]), run_time=3)
+
+        scale_factor = [0.3, 0.3, 0]
+        self.play(
+            zd_camera_frame.animate.scale(scale_factor),
+        #    zd_display.animate.scale(scale_factor),
+        )
+        # self.wait()
+        # self.play(ScaleInPlace(zoomed_display, 2))
+        # self.wait()
+        # self.play(frame.animate.shift(2.5 * DOWN))
+        # self.wait()
+        # self.play(self.get_zoomed_display_pop_out_animation(), rate_func=lambda t: smooth(1 - t))
+        # self.play(Uncreate(zoomed_display_frame), FadeOut(frame))
+        #
+
+        # In fact we can do better than that. We can directly compute the best direction of movement: Called the gradient
+        # Step according to the gradient
