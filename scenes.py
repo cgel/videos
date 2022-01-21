@@ -14,18 +14,22 @@ def color_map(val, np_mode=True):
     if np_mode == False:
         rgb_color = Color(rgb=rgb_color/255)
     return rgb_color
+#
+# def poly(x,y,z=0):
+#     return  4*x**2 + y**2 -2*x*y - x + y
+#
+# def sym_poly(x,y,z=0):
+#     return (x**4)*(y**2) + (x**2)*(y**4) - 80*(x**2)*(y**2) + 10 *x - 6*y
+#
 
-def poly(x,y,z=0):
-    return  4*x**2 + y**2 -2*x*y - x + y
+def f(x,y,z=0):
+    return sin((x-4)/3) + cos( (x+y -4)/3  )**2 + (y)**2/100
 
-def sym_poly(x,y,z=0):
-    return (x**4)*(y**2) + (x**2)*(y**4) - 80*(x**2)*(y**2) + 10 *x - 6*y
+f_tex = "sin\left(\frac{x -4}{3}\right) + cos\left( \frac{x+y-4}{3}\right)^2 + \frac{y^2}{100}"
 
-def wavey(x,y,z=0):
-    x -= 4
-    return sin(x/3) + cos( (x+y)/3 )**2 + (y)**2/100
+def dfdx(x,y):
+    pass
 
-f = wavey
 
 # Potentially a Scene introducing how to read an elevation map
 
@@ -167,6 +171,10 @@ class SearchScene(Scene):
             arrow = Arrow(start=o, end=t, buff=0.2, color=GREY)
             arrows.append(arrow)
         return arrows
+
+    def display_equation(self):
+        tex_mobject = MathTex("x^2")
+        self.play(Write(tex_mobject))
 
 
 class BruteForce(SearchScene):
@@ -417,6 +425,10 @@ class TheGradient(ZoomedScene, SearchScene):
         return center, neighbors, lines
 
     def construct(self):
+
+        self.display_equation()
+        self.wait()
+
         self.play(self.create_axes_animation)
         # Full screen color map
         self.play(FadeIn(self.elev_img))
@@ -424,25 +436,46 @@ class TheGradient(ZoomedScene, SearchScene):
         # Display grid of grey dots
         #self.fadein_points(color_by_elevation=False)
         self.wait()
-
         zd_camera = self.zoomed_camera
         zd_camera_frame = zd_camera.frame
         zd_display = self.zoomed_display
         zd_display_frame = zd_display.display_frame
 
-        center_pos = self.axes.c2p(*[-5, -3,0])
+        center_coords = [-5, -3]
+        center_pos = self.axes.c2p(*center_coords)
 
         zd_camera_frame.move_to(center_pos)
 
-        # Show best neighbor change as grid decreases (only 4 neighbors)
-        # No matter which point we are looking at, the process will converge to a neighbor. You can keep making the grid smaller, but the best direction will remain unchanged
         scale_tracker = ValueTracker(1)
         center, neighbors, lines = self.point_and_neighbors(scale_tracker, center_pos=center_pos)
         self.play(FadeIn(neighbors, lines, center))
 
-        #self.play(center.animate.move_to([-5,1,0]))
+        # Every point has a best direction
+        track_points = [ center_coords, [1,-3], [3, 5], [-4, 2], [-1.1, -5] ]
+        path = VMobject()
+        path.set_points_smoothly([*[self.axes.c2p(x,y) for x,y in track_points]])
+        print(linear)
+        self.play(MoveAlongPath(center, path), run_time=7, rate_func=rate_functions.ease_in_out_sine)
 
-        # Ultimately, this is due to the fact that all differentiable functions become linear if you zoom in far enough
+        # But the best direction also depends on the size of the step size.
+        # Show best neighbor change as grid decreases (only 4 neighbors)
+        self.play(scale_tracker.animate.set_value(2.5), run_time=3)
+        self.play(scale_tracker.animate.set_value(0.5), run_time=3)
+        self.wait(2)
+        # No matter which point we are looking at, the process will converge to a neighbor.
+        # You can keep making the grid smaller, but the best direction will remain unchanged
+        # Since this funciton is quite smooth, we don't need to make the step size very small before we converge
+
+
+        self.play(FadeOut(neighbors,lines))
+        # The maigc of differenciation, is that we can compute  don't need to evaluate the loss functions
+        # In fact, we can do better than that. We can compute the best direction, something that would have been impossible
+        # if we had to evaluate the value of all infinitely many directions
+
+        # Cut to me working out the derivative.
+        # You don't actually need to manually compute it. We got frameworks...
+
+        # To give you a bit of intution of how this is even possible we need to zoom into our function
         zd_rect = BackgroundRectangle(zd_display, fill_opacity=0, buff=MED_SMALL_BUFF)
         self.add_foreground_mobject(zd_rect)
         unfold_camera = UpdateFromFunc(zd_rect, lambda rect: rect.replace(zd_display))
@@ -450,10 +483,9 @@ class TheGradient(ZoomedScene, SearchScene):
         self.activate_zooming()
         self.play(self.get_zoomed_display_pop_out_animation())
 
+        # This is because if you zoom in enough, any differentiable function becomes linear.
         # As the step size become smaller, the best direction might change.
-        self.play(scale_tracker.animate.set_value(0.2), run_time=3)
 
-        return
         # This is because any differentiable function becomes linear if you zoom deep enough
 
         self.play(zd_camera_frame.animate.move_to([-2, -2.5,0]), run_time=3)
@@ -464,14 +496,5 @@ class TheGradient(ZoomedScene, SearchScene):
             zd_camera_frame.animate.scale(scale_factor),
         #    zd_display.animate.scale(scale_factor),
         )
-        # self.wait()
-        # self.play(ScaleInPlace(zoomed_display, 2))
-        # self.wait()
-        # self.play(frame.animate.shift(2.5 * DOWN))
-        # self.wait()
         # self.play(self.get_zoomed_display_pop_out_animation(), rate_func=lambda t: smooth(1 - t))
         # self.play(Uncreate(zoomed_display_frame), FadeOut(frame))
-        #
-
-        # In fact we can do better than that. We can directly compute the best direction of movement: Called the gradient
-        # Step according to the gradient
