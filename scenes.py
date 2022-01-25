@@ -1,6 +1,6 @@
 from manim import *
 from colour import Color
-from math import sin, cos, sqrt
+from math import sin, cos, sqrt, exp
 
 def normalize_val(val, min, max): return 150*(val-min)/(max - min)
 
@@ -302,77 +302,76 @@ class TheCurseOfDimensionality(ThreeDScene):
         self.play(FadeIn(points_cube, lag_ratio=0.3))
         self.wait(3)
 
-
 class ExponentialGrowth(Scene):
     def construct(self):
-        self.add(Square())
-        axes = self.get_zoom_axes()
+        y_zooms = [ [0, 100, 10],
+                    [0, 10000, 1000],
+                    [0, 1000000, 100000]
+                   ]
+        axes = self.get_zoom_axes(y_zooms)
         self.add(axes)
         self.wait()
 
-    def get_zoom_axes(self):
-        axes = Axes(x_range=[0,30, 2],
-                    y_range=[0, 1000000, 100000])
-        self.add(axes)
+        for i in range(0, 30):
+            dot = Dot(axes.c2p(i, exp(i)), color=BLUE)
+            dot.x = i
+            dot.y = exp(i)
+            dot.add_updater(lambda ob: ob.move_to(axes.c2p(ob.x, ob.y)))
+            self.play(FadeIn(dot), run_time = 0.1)
+            self.wait(0.3)
 
-        print(list(axes.y_axis.ticks))
+            if i==4: self.play(axes.y_axis.zoom_out_anim(), run_time=2)
+            if i==10: self.play(axes.y_axis.zoom_out_anim(), run_time=2)
 
-        def get_y_labels(axes, y_values):
-            labels = VGroup()
-            for y in y_values:
-                try:
-                    tick = axes.y_axis.ticks[y]
-                    if y < 1000:
-                        label = Tex(f"{y}")
-                    elif y < 1000000:
-                        label = Tex(f"{y/1000}k")
-                    else:
-                        label = Tex(f"{y/1000000}m")
-                    always(label.next_to, tick)
-                    labels.add(label)
-                except IndexError:
-                    pass
-            return labels
 
-        main_labels = get_y_labels(axes, range(3, 30, 5))
-        axes.y_labels = main_labels
-        axes.small_y_labels = get_y_labels(axes, range(1,6))
+    def get_zoom_axes(self, y_zooms):
+        """
+        y_zooms: a list of y_ranges containing min, max and steps in increasing order
+        """
+        x_range=[0,30, 2]
+        y_range=y_zooms[-1]
+        axes = Axes( x_range = x_range,
+                      y_range = y_range,
+                      tips = False,
+                      axis_config={'include_tip': False},
+                      y_axis_config={'include_ticks': False},
+                      x_axis_config={'include_ticks': True,
+                                    'include_numbers': True}
+                    )
+        axes_labels = axes.get_axis_labels(x_label="\# Dims", y_label="Evaluations")
+        axes.add(axes_labels)
+        origin = axes.c2p(0,0)
 
-        tiny_ticks = VGroup()
-        tiny_labels = VGroup()
-        for y in range(200, 1000, 200):
-            tick = axes.y_axis.ticks[0].copy()
-            point = axes.c2p(0, y)
-            tick.move_to(point)
-            label = Integer(y)
-            label.set_height(0.25)
-            always(label.next_to, tick, LEFT, SMALL_BUFF)
-            tiny_labels.add(label)
-            tiny_ticks.add(tick)
+        axes.y_axis.tick_list = []
+        def add_y_ticks(y_values):
+            ticks = VGroup()
+            for y in y_values[1:]:
+                ticks.add(axes.y_axis.get_tick(y))
+            axes.y_axis.add(ticks)
+            axes.y_axis.tick_list.append(ticks)
 
-        axes.tiny_y_labels = tiny_labels
-        axes.tiny_ticks = tiny_ticks
-        axes.add(main_labels)
-        origin = axes.c2p(0, 0)
-        self.add(Dot(axes.c2p(10,10000)))
-        axes.y_axis.stretch(25, 1, about_point=origin)
-        self.wait()
-        self.add(
-                    axes.tiny_y_labels, axes.tiny_ticks,
-                )
-        self.play(
-                    axes.y_axis.animate.stretch(0.2, 1, about_point= origin),
-                    FadeOut(axes.tiny_y_labels),
-                    FadeOut(axes.tiny_ticks),
-                    run_time=2,
-                )
+        for zoom in y_zooms:
+            assert zoom[0] == 0
+            add_y_ticks(range(*zoom))
+
+        def zoom_out_anim():
+            zoom_i = axes.y_axis.zoom_i
+            assert zoom_i < len(axes.y_axis.tick_list)
+            stretch =y_zooms[zoom_i][2]/y_zooms[zoom_i+1][2]
+            axes.y_axis.remove(axes.y_axis.tick_list[zoom_i])
+            anim = AnimationGroup(axes.y_axis.animate.stretch(stretch, 1, about_point= origin),
+                            FadeOut(axes.y_axis.tick_list[zoom_i])
+                        )
+            axes.y_axis.zoom_i += 1
+            return anim
+        axes.y_axis.zoom_out_anim = zoom_out_anim
+        axes.y_axis.zoom_i = 0
+
+        # Zoom to the first level
+        stretch =y_zooms[-1][2]/y_zooms[0][2]
+        axes.y_axis.stretch(stretch, 1, about_point= origin),
+        # self.play(axes.y_axis.animate.stretch(stretch, 1, about_point= origin),run_time=2)
         return axes
-
-    def construct(self):
-        pass
-
-
-        # Zoom effect. Grid is smaller, function becomes linear.
 
 
 class TheGradient(ZoomedScene, SearchScene):
