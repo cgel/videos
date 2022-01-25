@@ -24,12 +24,13 @@ def color_map(val, np_mode=True):
 
 def f(x,y,z=0):
     return sin((x-4)/3) + cos( (x+y -4)/3  )**2 + (y)**2/100
-
-f_tex = "sin\left(\frac{x -4}{3}\right) + cos\left( \frac{x+y-4}{3}\right)^2 + \frac{y^2}{100}"
-
 def dfdx(x,y):
-    pass
-
+    return cos( (x-4)/3 )/3 -1/3* sin(2*(x+y-4)/3)
+def dfdy(x,y):
+    return -1/3*sin( 2*(x+y-4)/3) + y/50
+def gradf(x,y, z=0):
+    return [dfdx(x,y), dfdy(x,y)]
+f_tex = "f(x,y)=sin\left(\\frac{x -4}{3}\\right) + cos\\left( \\frac{x+y-4}{3}\\right)^2 + \\frac{y^2}{100}"
 
 # Potentially a Scene introducing how to read an elevation map
 
@@ -64,6 +65,7 @@ class SearchScene(Scene):
         self.create_axes_animation = AnimationGroup(Create(self.axes),  FadeIn(self.labels))
 
     def make_elevation_map(self):
+        # TODO: fix the black gap on the right of the screen
         # Make the image full screen
         img_width = config.frame_width
         img_height = config.frame_height
@@ -88,9 +90,10 @@ class SearchScene(Scene):
                 elev_color_np[i,j] = color_map( normalize_val(elev_np[i,j], self.min_v, self.max_v) )
 
         self.elev_img = ImageMobject(elev_color_np)
+        self.elev_img.move_to(self.axes.get_center())
         self.elev_img.height = config.frame_height
+        self.elev_img.width = config.frame_width
         self.elev_img.set_z_index(self.axes.z_index -1)
-        self.elev_img.add_updater(lambda img: img.move_to(self.axes.get_center()))
 
     def make_grid(self):
         # TODO: move to setup
@@ -173,8 +176,15 @@ class SearchScene(Scene):
         return arrows
 
     def display_equation(self):
-        tex_mobject = MathTex("x^2")
-        self.play(Write(tex_mobject))
+        self.tex_mobject = MathTex(f_tex)
+        self.tex_mobject.scale(0.5)
+        self.tex_mobject.move_to(UP*2 + LEFT*4)
+        self.tex_rect = BackgroundRectangle(self.tex_mobject, fill_opacity=0.5, buff=MED_SMALL_BUFF)
+        self.play(FadeIn(self.tex_rect), Write(self.tex_mobject))
+
+    def remove_equation(self):
+        self.play(FadeOut(self.tex_rect, self.tex_mobject))
+
 
 
 class BruteForce(SearchScene):
@@ -295,7 +305,10 @@ class TheCurseOfDimensionality(ThreeDScene):
 
 class ExponentialGrowth(Scene):
     def construct(self):
+        self.add(Square())
         axes = self.get_zoom_axes()
+        self.add(axes)
+        self.wait()
 
     def get_zoom_axes(self):
         axes = Axes(x_range=[0,30, 2],
@@ -354,8 +367,6 @@ class ExponentialGrowth(Scene):
                     run_time=2,
                 )
         return axes
-
-
 
     def construct(self):
         pass
@@ -425,16 +436,13 @@ class TheGradient(ZoomedScene, SearchScene):
         return center, neighbors, lines
 
     def construct(self):
-
-        self.display_equation()
-        self.wait()
-
         self.play(self.create_axes_animation)
         # Full screen color map
         self.play(FadeIn(self.elev_img))
 
-        # Display grid of grey dots
-        #self.fadein_points(color_by_elevation=False)
+        self.display_equation()
+        self.wait(2)
+        self.remove_equation()
         self.wait()
         zd_camera = self.zoomed_camera
         zd_camera_frame = zd_camera.frame
@@ -461,7 +469,7 @@ class TheGradient(ZoomedScene, SearchScene):
         # Show best neighbor change as grid decreases (only 4 neighbors)
         self.play(scale_tracker.animate.set_value(2.5), run_time=3)
         self.play(scale_tracker.animate.set_value(0.5), run_time=3)
-        self.wait(2)
+        # self.wait(2)
         # No matter which point we are looking at, the process will converge to a neighbor.
         # You can keep making the grid smaller, but the best direction will remain unchanged
         # Since this funciton is quite smooth, we don't need to make the step size very small before we converge
@@ -471,6 +479,66 @@ class TheGradient(ZoomedScene, SearchScene):
         # The maigc of differenciation, is that we can compute  don't need to evaluate the loss functions
         # In fact, we can do better than that. We can compute the best direction, something that would have been impossible
         # if we had to evaluate the value of all infinitely many directions
+        dir_circ = Circle(color=WHITE, fill_opacity=0, stroke_width = 4)
+        rad_tracker = ValueTracker(0.9)
+        dir_circ.add_updater(lambda ob, dt: ob.move_to(center.get_center() ), call_updater=True)
+        dir_circ.add_updater(lambda ob, dt: ob.set_height(rad_tracker.get_value()), call_updater=True)
+        # self.play(FadeIn(dir_circ))
+        def tip_pos():
+            grad_scalar = 2.
+            center_pos = np.array(center.get_center())
+            grad = np.array(self.axes.c2p(*gradf(*self.axes.p2c(center_pos)))) # The grad is computed in coordinates, which might be scaled differently
+            grad_tip = center_pos - grad_scalar*grad
+            return grad_tip
+
+        def gradf_from_pos(pos):
+            x,y = self.axes.p2c(pos)
+            return self.axes.c2p(-dfdx(x,y), -dfdy(x,y))
+
+
+        arrow = Arrow()
+        arrow.add_updater(lambda ob, dt: ob.become( Arrow(start=center.get_center(),
+                                                        end=tip_pos(),
+                                                        buff=0., color=WHITE)
+                                                    ),
+                            call_updater=True)
+        self.play(FadeIn(arrow))
+
+        track_points = [ track_points[-1], [1,-3], [3, 5], [-4, 2], [-1.1, -6] ]
+        path = VMobject()
+        path.set_points_smoothly([*[self.axes.c2p(x,y) for x,y in track_points]])
+        self.play(MoveAlongPath(center, path), run_time=7, rate_func=rate_functions.ease_in_out_sine)
+
+        self.play(rad_tracker.animate.set_value(0.8), run_time=2)
+        self.play(rad_tracker.animate.set_value(0.2), run_time=2)
+        self.play(FadeOut(center, arrow))
+
+        v_field = ArrowVectorField(gradf_from_pos, color=WHITE, length_func=lambda x: x)
+        # self.add(v_field.create())
+        self.play(Create(v_field))
+        self.wait()
+        self.play(FadeOut(self.elev_img))
+        self.play(FadeOut(v_field))
+
+        stream_lines = StreamLines(
+            gradf_from_pos,
+            # color=YELLOW,
+            x_range=[-7, 7, 1],
+            y_range=[-4, 4, 1],
+            stroke_width=3,
+            virtual_time=8,  # use shorter lines
+            max_anchors_per_line=5,  # better performance with fewer anchors
+        )
+        # self.play(stream_lines.create(), run_time=3)  # uses virtual_time as run_time
+        # self.add(stream_lines)
+        stream_lines.start_animation(warm_up=True, flow_speed=2.5, time_width=0.5)
+        self.wait(3)
+        self.play(stream_lines.end_animation())
+        return
+
+
+        # Show full vector field
+
 
         # Cut to me working out the derivative.
         # You don't actually need to manually compute it. We got frameworks...
