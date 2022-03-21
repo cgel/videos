@@ -2,6 +2,66 @@ from manim import *
 from colour import Color
 from math import sin, cos, sqrt, exp
 
+def poly(x, parameters):
+    r = 0
+    for i,p in enumerate(parameters): r+= p*(x**i)
+    return r
+
+class Intro(Scene):
+    def construct(self):
+        Title = Text("Finding functions that fit data", t2c={'functions':BLUE, 'data':GREEN}).move_to(UP*3).set_z_index(1)
+        self.play(Write(Title))
+        self.wait()
+
+        axes = Axes().scale(0.8)
+        time_tracker = ValueTracker(0.)
+
+        def parameters_at_t():
+            t = time_tracker.get_value()
+            return [-2*cos(t/5),cos(-t/8), sin(t)/10, -sin(cos(t/5) + 1)/100, 0]
+        def f_at_t(x): return poly(x, parameters_at_t())
+        def h(x): return poly(x, [2, 1, -1/10])
+
+        f_graph = axes.plot(f_at_t, color=BLUE)
+        f_graph.add_updater(lambda ob: ob.become(axes.plot(f_at_t, color=BLUE)))
+        h_graph = axes.plot(h, color=GREEN)
+
+        data_x_vals = [-5, -1, 3, 4]
+        data_h_xy_vals = [ (x,h(x)) for x in data_x_vals ]
+        data_h_dots = [Dot(axes.c2p(x, y), color=GREEN) for x,y in data_h_xy_vals]
+        data_h_dots = VGroup(*data_h_dots)
+
+        self.play(Create(axes))
+        self.play(Create(f_graph), FadeIn(data_h_dots, lag_ratio=0.1))
+        self.play(Create(h_graph))
+        self.play(Uncreate(h_graph))
+
+        time_increment = 10
+        self.play(time_tracker.animate.set_value(time_tracker.get_value() + time_increment), run_time=time_increment)
+
+        data_f_xy_vals = [ (x,f_at_t(x)) for x in data_x_vals ]
+        data_f_dots = [Dot(axes.c2p(x, y), color=BLUE) for x,y in data_f_xy_vals]
+        data_f_dots = VGroup(*data_f_dots)
+        err_bars = [Line(hd, fd, color=RED) for hd, fd in zip(data_h_dots,  data_f_dots)]
+        err_bars = VGroup(*err_bars)
+
+        self.play(FadeIn(data_f_dots, lag_ratio=0.1), FadeIn(err_bars, lag_ratio=0.1))
+
+        # Make sure the f dots and error bars stay updated as f changes
+        for x, dot in zip(data_x_vals, data_f_dots):
+            # Note how x=x needs to be passed in the lambda expresion. Otherwise all the lambda expresions use the last x in the list
+            dot.add_updater(lambda ob, x=x: ob.become(Dot(axes.c2p(x, f_at_t(x)), color=BLUE)))
+        for bar, hd, fd in zip(err_bars, data_h_dots, data_f_dots):
+            bar.add_updater(lambda ob, hd=hd, fd=fd: ob.become(Line(hd, fd, color=RED)))
+
+        time_increment = 5
+        self.play(time_tracker.animate.set_value(time_tracker.get_value() + time_increment), run_time=time_increment)
+
+
+
+
+
+
 def normalize_val(val, min, max): return 150*(val-min)/(max - min)
 
 def color_map(val, np_mode=True):
@@ -34,7 +94,7 @@ f_tex = "f(x,y)=sin\left(\\frac{x -4}{3}\\right) + cos\\left( \\frac{x+y-4}{3}\\
 
 # Potentially a Scene introducing how to read an elevation map
 
-# the simplest version
+# Base class
 class SearchScene(Scene):
     def setup(self):
         # TODO: automate the low_q from config
@@ -132,19 +192,26 @@ class SearchScene(Scene):
         best_point = np.argmin(point_values)
         return best_point
 
-    def fadeout_points(self, point_indices=None):
+    def fadeout_points_animation(self, point_indices=None):
+        print('fadeout ', point_indices)
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
         fadeout_points_animation = [FadeOut(self.grid_points[i]) for i in point_indices]
-        anim = AnimationGroup(*reversed(fadeout_points_animation), lag_ratio = self.grid_lag)
+        return AnimationGroup(*reversed(fadeout_points_animation), lag_ratio = self.grid_lag)
+
+    def fadeout_points(self, point_indices=None):
+        anim = self.fadeout_points_animation(point_indices)
         self.play(anim)
 
-    def fadein_points(self, point_indices=None, color_by_elevation=False, run_time=1):
+    def fadein_points_animation(self, point_indices=None, color_by_elevation=False, run_time=1):
         if  point_indices is None: point_indices = list(range(len(self.grid_points)))
         if color_by_elevation:
             fadein_points_animation = [FadeIn(self.grid_points[i].set_fill(self.grid_colors[i])) for i in point_indices]
         else:
             fadein_points_animation = [FadeIn(self.grid_points[i].set_fill(WHITE)) for i in point_indices]
-        anim = AnimationGroup(*reversed(fadein_points_animation), run_time=run_time, lag_ratio = self.grid_lag)
+        return AnimationGroup(*reversed(fadein_points_animation), run_time=run_time, lag_ratio = self.grid_lag)
+
+    def fadein_points(self, point_indices=None, color_by_elevation=False, run_time=1):
+        anim = self.fadein_points_animation(point_indices, color_by_elevation, run_time)
         self.play(anim)
 
     def color_points(self, point_indices=None, color_by_elevation=True, dark=False, run_time=1):
@@ -185,18 +252,18 @@ class SearchScene(Scene):
     def remove_equation(self):
         self.play(FadeOut(self.tex_rect, self.tex_mobject))
 
-
-
 class BruteForce(SearchScene):
     def construct(self):
         self.play(self.create_axes_animation)
         # Full screen color map
+        self.elev_img.fade(0.8)
         self.play(FadeIn(self.elev_img))
 
         # Display grid of grey dots
         self.fadein_points(color_by_elevation=False)
         self.wait()
-        self.play(FadeOut(self.elev_img))
+
+        # self.play(self.elev_img.animate.fade(0.8))
         # Perform the measurement 1 by 1. The dots pick up the color.
         self.color_points(color_by_elevation=True)
         # Hightlight the loest dot in the screen
@@ -207,10 +274,17 @@ class BruteForce(SearchScene):
 class LocalSearch(SearchScene):
     def construct(self):
         self.play(self.create_axes_animation)
+        self.elev_img.fade(0.8)
+        self.play(FadeIn(self.elev_img))
 
         # Display grid of grey dots
         # Perform the measurement 1 by 1. The dots pick up the color.
-        points = self.sample_random_points(3)
+        # points = self.sample_random_points(3)
+        # points = [57, 1, 15]
+        # Bad local optima
+        points = [78]
+        print('points ', points)
+
         self.fadein_points(points, color_by_elevation=True)
         self.wait(1)
 
@@ -223,14 +297,45 @@ class LocalSearch(SearchScene):
             arrows = self.get_arrows(best_point, neighbors)
             # If a neighbor is already in the dataset ignore it
             neighbors = [n for n in neighbors if n not in points]
-            self.play(FadeIn(*arrows, run_time=0.3))
-            self.fadein_points(neighbors, run_time=0.5)
-            self.play(FadeOut(*arrows, run_time=0.3))
-            self.color_points(neighbors, dark=False, run_time=0.5)
+            self.play(self.fadein_points_animation(neighbors, True), FadeIn(*arrows, run_time=0.4))
+            # self.play(FadeIn(*arrows, run_time=0.3))
+            # self.fadein_points(neighbors, run_time=0.5)
+            self.play(FadeOut(*arrows, run_time=0.4))
+            # self.color_points(neighbors, dark=False, run_time=0.5)
             points.extend(neighbors)
 
         best = self.darken_points_except_best(points)
         best_point = points[best]
+
+
+class AFewTrialsLocalSearch(SearchScene):
+    def construct(self):
+        self.play(self.create_axes_animation)
+        self.elev_img.fade(0.8)
+        self.play(FadeIn(self.elev_img))
+        initial_points = [61, 28]
+
+        for i in range(len(initial_points)):
+            # Display grid of grey dots
+            # Perform the measurement 1 by 1. The dots pick up the color.
+            points = [initial_points[i]]
+            self.fadein_points(points, color_by_elevation=True)
+
+            best_point = None
+            while True:
+                best = self.darken_points_except_best(points)
+                if points[best] == best_point: break
+                best_point = points[best]
+                neighbors = self.get_neighbors(best_point)
+                arrows = self.get_arrows(best_point, neighbors)
+                # If a neighbor is already in the dataset ignore it
+                neighbors = [n for n in neighbors if n not in points]
+                self.play(self.fadein_points_animation(neighbors, True), FadeIn(*arrows, run_time=0.3))
+                self.play(FadeOut(*arrows, run_time=0.3))
+                # self.color_points(neighbors, dark=False, run_time=0.5)
+                points.extend(neighbors)
+            best = self.darken_points_except_best(points)
+            self.fadeout_points(points)
 
 
 class TheCurseOfDimensionality(ThreeDScene):
@@ -302,6 +407,7 @@ class TheCurseOfDimensionality(ThreeDScene):
         self.play(FadeIn(points_cube, lag_ratio=0.3))
         self.wait(3)
 
+
 class ExponentialGrowth(Scene):
     def construct(self):
         y_zooms = [ [0, 100, 10],
@@ -310,9 +416,18 @@ class ExponentialGrowth(Scene):
                    ]
         axes = self.get_zoom_axes(y_zooms)
         self.add(axes)
-        self.wait()
+        # self.add(*axes.y_axis.label_list)
 
-        for i in range(0, 30):
+        # self.play(axes.y_axis.zoom_out_anim(), run_time=2)
+        axes.y_axis.zoom_out_anim()
+
+        return
+        # Reference ponits
+        # Grains of sand on earth
+        # Number of atoms in the universe
+        # Number of chess positions
+
+        for i in range(0, 15):
             dot = Dot(axes.c2p(i, exp(i)), color=BLUE)
             dot.x = i
             dot.y = exp(i)
@@ -343,12 +458,30 @@ class ExponentialGrowth(Scene):
         origin = axes.c2p(0,0)
 
         axes.y_axis.tick_list = []
+        axes.y_axis.label_list = []
+
+        def formatted_label(y):
+            if y >= 1000: label_str = str(y//1000) + 'K'
+            elif y >= 1000000: label_str = str(y//1000000) + 'M'
+            else:  label_str = str(y)
+            label = axes.y_axis._create_label_tex(label_str)
+            label.scale(0.7)
+            return label
+
         def add_y_ticks(y_values):
             ticks = VGroup()
+            labels = VGroup()
             for y in y_values[1:]:
                 ticks.add(axes.y_axis.get_tick(y))
+                label = formatted_label(y)
+                label.y = y
+                label.add_updater(lambda ob: ob.next_to(axes.y_axis.n2p(ob.y), direction=LEFT, buff=0.1))
+                labels.add(label)
             axes.y_axis.add(ticks)
+            # axes.y_axis.add(labels)
+
             axes.y_axis.tick_list.append(ticks)
+            axes.y_axis.label_list.append(labels)
 
         for zoom in y_zooms:
             assert zoom[0] == 0
@@ -358,10 +491,12 @@ class ExponentialGrowth(Scene):
             zoom_i = axes.y_axis.zoom_i
             assert zoom_i < len(axes.y_axis.tick_list)
             stretch =y_zooms[zoom_i][2]/y_zooms[zoom_i+1][2]
-            axes.y_axis.remove(axes.y_axis.tick_list[zoom_i])
-            anim = AnimationGroup(axes.y_axis.animate.stretch(stretch, 1, about_point= origin),
-                            FadeOut(axes.y_axis.tick_list[zoom_i])
+            anim = AnimationGroup(axes.y_axis.animate.stretch(stretch, 1, about_point=origin),
+                            FadeOut(axes.y_axis.tick_list[zoom_i]),
+                            # FadeOut(axes.y_axis.label_list[zoom_i]),
                         )
+            self.play(anim)
+            # axes.y_axis.remove(axes.y_axis.tick_list[zoom_i])
             axes.y_axis.zoom_i += 1
             return anim
         axes.y_axis.zoom_out_anim = zoom_out_anim
