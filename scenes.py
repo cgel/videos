@@ -7,7 +7,6 @@ def poly(x, parameters):
     for i,p in enumerate(parameters): r+= p*(x**i)
     return r
 
-
 def color_map(val):
     val = -val/4 + 80
     hsl_color =  np.float32([val/255,0.5,0.5])
@@ -18,9 +17,59 @@ def color_map(val):
         if in_bounds[i] == False: print('Warning, color', color, 'is out of bounds')
     return rgb_color
 
+class ColorNumberLine(NumberLine):
+    def __init__(self, *args, color_res=500, label_text=None, **kwargs):
+        length = kwargs['length']
+        super().__init__(*args, rotation=PI/2, **kwargs)
+
+        screen_height = config.frame_height
+        img_np = np.zeros([color_res, color_res//10, 3], np.uint8)
+        for i in range(color_res):
+            alpha = i / color_res
+            color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
+            img_np[i,:, :] = color * 256
+        img = ImageMobject(img_np, scale_to_resolution=color_res*(screen_height/length) ).set_z_index(-1)
+        self.submobjects.append(img)
+        if label_text:
+            label = Text(label_text).scale(0.8)
+            label.shift(DOWN*(length/2 + 0.3))
+            self.submobjects.append(label)
+
+    def number_to_color(self, x):
+        pass
+
+class TestColorNL(Scene):
+    def construct(self):
+        # nl = NumberLine(x_range=[0, 50, 10], length=4.5)
+        nl = ColorNumberLine(x_range=[0, 50, 10], length=4.5, label_text='loss')
+        # nl = ColorNumberLine(x_range=[0, 50, 10], length=4.5)
+        self.add(nl)
+        self.play(nl.animate.shift(LEFT*2))
+
+
+class Images(Scene):
+    def construct(self):
+        screen_height = config.frame_height
+        n, m = 50,20
+        img_np = np.zeros([n,m, 3], np.uint8)
+        for i in range(n):
+            for j in range(m):
+                alpha = i / 50.
+                color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
+                img_np[i,j, :] = color * 256
+        # If scale to resolution is 1, a single pixel occupies the entire height
+        # setting it to 2 occupies half the height
+        # If I want n pixels to occupy the entire height I should set it to n
+        img_heigh = 6
+        img = ImageMobject(img_np, scale_to_resolution=n*(screen_height/img_heigh) )
+        line = Line(3*DOWN + LEFT*5, UP *3+ LEFT*5)
+        # print(img_np)
+        self.add(img)
+        self.add(line)
+        self.wait()
+
+
 # TODO: refactor into single parent class
-# TODO: Make all the time increases linear functions.
-# TODO: Make the movement of functions constant and uniform.
 
 class Intro(Scene):
     def construct(self):
@@ -356,6 +405,7 @@ class Intro2(Scene):
             # color = interpolate_color()
             # number_bar_np[i, :, :] =
             number_bar_np[i, :, :] = color_map(i)[None]
+            print('Color ', color_map(i)[None].shape)
             print(color_map(i)[None])
         color_bar = ImageMobject(number_bar_np, 80).move_to(loss_line.get_center()).set_z_index(-1)
 
