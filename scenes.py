@@ -1,6 +1,6 @@
 from manim import *
 from colour import Color
-from math import sin, cos, sqrt, exp
+from math import sin, cos, sqrt, exp, log, log2, floor, ceil
 
 def poly(x, parameters):
     r = 0
@@ -19,7 +19,8 @@ def color_map(val):
 
 class ColorNumberLine(NumberLine):
     def __init__(self, *args, color_res=500, label_text=None, **kwargs):
-        length = kwargs['length']
+        self.length = kwargs['length']
+        self.x_range = kwargs['x_range']
         super().__init__(*args, rotation=PI/2, **kwargs)
 
         screen_height = config.frame_height
@@ -28,49 +29,35 @@ class ColorNumberLine(NumberLine):
             alpha = i / color_res
             color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
             img_np[i,:, :] = color * 256
-        img = ImageMobject(img_np, scale_to_resolution=color_res*(screen_height/length) ).set_z_index(-1)
-        self.submobjects.append(img)
+        self.color_bar = ImageMobject(img_np, scale_to_resolution=color_res*(screen_height/self.length) ).set_z_index(-1)
+        # self.submobjects.append(img)
         if label_text:
             label = Text(label_text).scale(0.8)
-            label.shift(DOWN*(length/2 + 0.3))
+            label.shift(DOWN*(self.length/2 + 0.3))
             self.submobjects.append(label)
 
     def number_to_color(self, x):
-        pass
+            x_max = self.x_range[0]
+            x_min = self.x_range[1]
+            alpha = (x - x_min)/(x_max - x_min)
+            # assert alpha>=0 and alpha<= 1, "Number is {} but the range is {} to {}".format(x, self.x_range[0], self.x_range[1])
+            if alpha<0 or alpha>1:
+                print("ColorNumberLine WARNING: Number is {} but the range is {} to {}".format(x, self.x_range[0], self.x_range[1]))
+            alpha = np.clip(alpha, 0,1)
+            # color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
+            color = interpolate_color(RED, DARK_BLUE, alpha)
+            return color
+
 
 class TestColorNL(Scene):
     def construct(self):
         # nl = NumberLine(x_range=[0, 50, 10], length=4.5)
         nl = ColorNumberLine(x_range=[0, 50, 10], length=4.5, label_text='loss')
         # nl = ColorNumberLine(x_range=[0, 50, 10], length=4.5)
-        self.add(nl)
+        self.play(Create(nl), FadeIn(nl.color_bar))
         self.play(nl.animate.shift(LEFT*2))
 
-
-class Images(Scene):
-    def construct(self):
-        screen_height = config.frame_height
-        n, m = 50,20
-        img_np = np.zeros([n,m, 3], np.uint8)
-        for i in range(n):
-            for j in range(m):
-                alpha = i / 50.
-                color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
-                img_np[i,j, :] = color * 256
-        # If scale to resolution is 1, a single pixel occupies the entire height
-        # setting it to 2 occupies half the height
-        # If I want n pixels to occupy the entire height I should set it to n
-        img_heigh = 6
-        img = ImageMobject(img_np, scale_to_resolution=n*(screen_height/img_heigh) )
-        line = Line(3*DOWN + LEFT*5, UP *3+ LEFT*5)
-        # print(img_np)
-        self.add(img)
-        self.add(line)
-        self.wait()
-
-
 # TODO: refactor into single parent class
-
 class Intro(Scene):
     def construct(self):
         Title = Text("Finding functions that fit data", t2c={'functions':BLUE, 'data':GREEN}).move_to(UP*3.2).set_z_index(2)
@@ -341,20 +328,17 @@ class Intro2(Scene):
         self.data_x_vals = [-2.8, -1.2, 0.4, 2]
         self.time_tracker = ValueTracker(0.)
 
+        # The main function family of the scene. Has 2 parameters
         def func_2param(x, p):
             assert len(p) == 2
             p1, p2 = p[0], p[1]
-            return poly(x, [0, p1, p2/20])
-        h_params = np.array([1.2, -2.5])
+            return poly(x, [0, p1/3, p2/20])
+        h_params = np.array([1.2, -1.5])
         def wandering_parameter_path(t):
             return np.array([-1.*cos(t),2.5*sin(-t)])
             # return np.array([cos(t),sin(t)])
-        def zigzag_parameter_path(t):
-            pass
         def parameters_at_t():
             t = self.time_tracker.get_value()
-            if t < 20: return wandering_parameter_path(t)
-            # elif t < 40: return zigzag_parameter_path(t-20)
             return wandering_parameter_path(t)
 
         def f_at_t(x): return func_2param(x, parameters_at_t())
@@ -364,7 +348,8 @@ class Intro2(Scene):
         self.play(write_title_anim, run_time=1)
         self.wait()
 
-        param_axes = Axes(x_range=[-3,3], y_range=[-3,3], x_length = 5, y_length = 5, tips=False)
+        rng = 4
+        param_axes = Axes(x_range=[-rng,rng], y_range=[-rng,rng], x_length = 5, y_length = 5, tips=False)
         param_labels = self.axis_labels(param_axes, x_label='p1', y_label='p2')
         param_dot = Dot()
         param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*parameters_at_t())),
@@ -375,7 +360,7 @@ class Intro2(Scene):
         self.play_dt( Create(param_dot), dt=0.2)
         self.play_dt(dt=2)
 
-        axes = Axes(x_range=[-3,3], y_range=[-3,3], x_length = 5, y_length = 5, tips=False).shift(RIGHT*3)
+        axes = Axes(x_range=[-rng,rng], y_range=[-rng,rng], x_length = 5, y_length = 5, tips=False).shift(RIGHT*3)
         labels = self.axis_labels(axes)
         self.play_dt(Create(axes), Create(labels),
                 param_axes.animate.shift(LEFT*3),
@@ -385,42 +370,92 @@ class Intro2(Scene):
         f_graph.add_updater(lambda ob: ob.become(axes.plot(f_at_t, color=BLUE)))
         h_graph = axes.plot(h, color=GREEN)
 
-        param_dot = Dot()
+        param_dot = Dot(radius=0.1)
         param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*parameters_at_t())),
                                 call_updater=True)
         self.play_dt(Create(f_graph), Create(param_dot),dt=1)
         self.play_dt(dt=2)
         data_f_dots, data_h_dots, err_bars = self.get_dots_and_err_bars(axes, f_at_t, h)
 
-        loss_line = NumberLine(x_range=[0, 50, 10], length=4.5, rotation=PI/2, include_numbers=False, label_direction=LEFT).shift(RIGHT*6)
-        loss_text = Text('loss').scale(0.8)
-        loss_text.next_to(loss_line, DOWN)
-        def loss_func():
-            return sum([(h(x) - f_at_t(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
+        max_loss = 4
+        loss_line = ColorNumberLine(x_range=[0, max_loss, 1], length=4.5, label_text='loss')
+        loss_line.shift(RIGHT*6)
+        loss_line.color_bar.shift(RIGHT*6)
+        def loss_func(f=f_at_t):
+            loss = sum([(h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
+            # return loss
+            return log2(1+ loss) # Purely for asthetic reasons
+        def param_loss(params):
+            return loss_func(lambda x: func_2param(x, params))
         loss_dot = Dot(loss_line.n2p(loss_func()), color=RED)
-        loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(loss_func()), color=RED)))
+        loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(loss_func()), radius = 0.1)))
 
-        number_bar_np = np.empty([50,5, 3], dtype=np.uint8)
-        for i in range(number_bar_np.shape[0]):
-            # color = interpolate_color()
-            # number_bar_np[i, :, :] =
-            number_bar_np[i, :, :] = color_map(i)[None]
-            print('Color ', color_map(i)[None].shape)
-            print(color_map(i)[None])
-        color_bar = ImageMobject(number_bar_np, 80).move_to(loss_line.get_center()).set_z_index(-1)
-
-        arrow = Arrow(start = RIGHT, end = 3*RIGHT)
         self.play_dt(axes.animate.shift(LEFT*1.),
                     param_axes.animate.shift(LEFT*1.),
-                    Create(loss_line), Write(loss_text),
+                    Create(loss_line), FadeIn(loss_line.color_bar),
+                    FadeIn(err_bars, lag_ratio=0.1),
                     FadeIn(data_f_dots, lag_ratio=0.1),
                     FadeIn(data_h_dots, lag_ratio=0.1),
-                    FadeIn(err_bars, lag_ratio=0.1),
                     FadeIn(loss_dot),
-                    FadeIn(color_bar),
                     dt=1)
+        param_dot.add_updater(lambda ob: ob.set_color(loss_line.number_to_color(loss_func())))
         self.play_dt(dt=5)
-        return
+
+        grid_size = 7
+        param_grid_list = []
+        grid_rng = rng - 0.3
+        for y in range(grid_size+1):
+            for x in range(grid_size+1):
+                if (-1)**y == -1: x = grid_size -x
+                # x,y range over 0 -> grid_size -1
+                p1 = -grid_rng + 2*grid_rng*x/grid_size
+                p2 = grid_rng - 2*grid_rng*y/grid_size
+                param_grid_list.append( np.array([p1,p2]) )
+
+        # Send the parameters to the beginning of the grid
+        transition_t =  self.time_tracker.get_value()
+        param_at_transition_t = parameters_at_t()
+        transition_time = 2
+        def parameters_at_t():
+            # t = self.time_tracker.get_value() - zigzag_t
+            # print(type(self.time_tracker.get_value()))
+            t = self.time_tracker.get_value()
+            alpha = (t - transition_t)/transition_time
+            params = alpha* param_grid_list[0] + (1-alpha)*param_at_transition_t
+            return params
+
+        self.play_dt(dt=transition_time)
+
+        # Time where the zigzag begins
+        zigzag_t = self.time_tracker.get_value()
+        time_per_dot = 0.2
+        grid_losses = []
+        for i, params in enumerate(param_grid_list):
+            grid_losses.append(param_loss(params))
+            dot = Dot(param_axes.c2p(*params),
+                        radius = 0.1,
+                        fill_opacity=0.,
+                        color=loss_line.number_to_color(param_loss(params)))
+            def dot_opacity(dot, i=i):
+                t = self.time_tracker.get_value() - zigzag_t
+                if t/time_per_dot >=i:
+                    dot.set_fill(opacity=1.)
+            dot.add_updater(dot_opacity)
+            self.add(dot)
+        print('max loss in grid ', max(grid_losses))
+        print('min loss in grid ', min(grid_losses))
+
+        def parameters_at_t():
+            t = self.time_tracker.get_value() - zigzag_t
+            curr_ind = floor(t/time_per_dot)
+            next_ind = ceil(t/time_per_dot)
+            if curr_ind >= len(param_grid_list): curr_ind = len(param_grid_list) -1
+            if next_ind >= len(param_grid_list): next_ind = len(param_grid_list) -1
+            alpha = t/time_per_dot %1
+            return alpha*param_grid_list[next_ind] + (1-alpha)*param_grid_list[curr_ind]
+        self.play_dt(dt=20)
+
+
 
 
 
