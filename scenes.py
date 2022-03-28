@@ -49,16 +49,8 @@ class ColorNumberLine(NumberLine):
             return color
 
 
-class TestColorNL(Scene):
-    def construct(self):
-        # nl = NumberLine(x_range=[0, 50, 10], length=4.5)
-        nl = ColorNumberLine(x_range=[0, 50, 10], length=4.5, label_text='loss')
-        # nl = ColorNumberLine(x_range=[0, 50, 10], length=4.5)
-        self.play(Create(nl), FadeIn(nl.color_bar))
-        self.play(nl.animate.shift(LEFT*2))
-
 # TODO: refactor into single parent class
-class Intro(Scene):
+class IntroFuncSpaces(Scene):
     def construct(self):
         Title = Text("Finding functions that fit data", t2c={'functions':BLUE, 'data':GREEN}).move_to(UP*3.2).set_z_index(2)
         title_background_rect = BackgroundRectangle(Title, fill_opacity=.7, buff=0.).set_z_index(1)
@@ -258,9 +250,20 @@ class Intro(Scene):
 
 
 
+class FuncSpaceScene(Scene):
+    def parameters_at_t(self):
+        pass
+    def f_at_t(self, x): pass
+    def h(self, x): pass
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.axis_leg_size = 4
+        self.rng = [-self.axis_leg_size, self.axis_leg_size]
+        self.data_x_vals = [-2.8, -1.2, 0.4, 2]
+        self.time_tracker = ValueTracker(0.)
 
 
-class Intro2(Scene):
     def get_title(self, txt):
         title = Text(txt).move_to(UP*3.2).set_z_index(2)
         title_background_rect = BackgroundRectangle(title, fill_opacity=.7, buff=0.).set_z_index(1)
@@ -323,72 +326,100 @@ class Intro2(Scene):
         labels = VGroup(label_x, label_y)
         return labels
 
+    def parameter_grid(self, grid_size=7, rng= 4- 0.3):
+        param_grid_list = []
+        grid_rng = rng
+        for y in range(grid_size+1):
+            for x in range(grid_size+1):
+                if (-1)**y == -1: x = grid_size -x
+                # x,y range over 0 -> grid_size -1
+                p1 = -grid_rng + 2*grid_rng*x/grid_size
+                p2 = grid_rng - 2*grid_rng*y/grid_size
+                param_grid_list.append( np.array([p1,p2]) )
+        return param_grid_list
+
+    def color_map(self, res=500):
+        screen_height = config.frame_height
+        img_np = np.zeros([res, res,  3], np.uint8)
+        for x in range(res):
+            for y in range(res):
+                l = loss()
+                color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
+                img_np[i,:, :] = color * 256
+        self.color_bar = ImageMobject(img_np, scale_to_resolution=color_res*(screen_height/self.length) ).set_z_index(-1)
+        # self.submobjects.append(img)
+
+
+class IntroColorMap(FuncSpaceScene):
+    def func_2param(self, x, p):
+        assert len(p) == 2
+        # p1, p2 = p[0], p[1]
+        p1, p2 = p[1], p[0]
+        return poly(x, [0, p1/3, p2/20])
+
+    def parameters_at_t(self):
+        t = self.time_tracker.get_value()
+        return np.array([-1.*cos(t),2.5*sin(-t)])
+
+    def f_at_t(self, x):
+        return self.func_2param(x, self.parameters_at_t())
+
+
+    h_params = np.array([1.2, -1.5])
+
+    def h(self, x): return self.func_2param(x, self.h_params)
+
+    def loss_func(self, f):
+        loss = sum([(self.h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
+        # return loss
+        return log2(1+ loss) # Purely for asthetic reasons
+    def param_loss(self, params):
+        return self.loss_func(lambda x: self.func_2param(x, params))
 
     def construct(self):
-        self.data_x_vals = [-2.8, -1.2, 0.4, 2]
-        self.time_tracker = ValueTracker(0.)
-
         # The main function family of the scene. Has 2 parameters
-        def func_2param(x, p):
-            assert len(p) == 2
-            p1, p2 = p[0], p[1]
-            return poly(x, [0, p1/3, p2/20])
-        h_params = np.array([1.2, -1.5])
-        def wandering_parameter_path(t):
-            return np.array([-1.*cos(t),2.5*sin(-t)])
-            # return np.array([cos(t),sin(t)])
-        def parameters_at_t():
-            t = self.time_tracker.get_value()
-            return wandering_parameter_path(t)
-
-        def f_at_t(x): return func_2param(x, parameters_at_t())
-        def h(x): return func_2param(x, h_params)
-
         title, write_title_anim = self.get_title("Function spaces with 2 parameters")
         self.play(write_title_anim, run_time=1)
         self.wait()
 
-        rng = 4
-        param_axes = Axes(x_range=[-rng,rng], y_range=[-rng,rng], x_length = 5, y_length = 5, tips=False)
+        param_axes = Axes(x_range=self.rng, y_range=self.rng, x_length = 5, y_length = 5, tips=False)
+        # TODO: add to submobjects automatically
         param_labels = self.axis_labels(param_axes, x_label='p1', y_label='p2')
         param_dot = Dot()
-        param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*parameters_at_t())),
+        param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*self.parameters_at_t())),
                                 call_updater=True
-                                )
+                              )
         # self.play(Create(axes, run_time = 1), Create(labels), Create(param_axes, run_time = 0.8), Create(param_labels), run_time = 1)
         self.play(Create(param_axes, run_time = 0.8), Create(param_labels), run_time = 1)
         self.play_dt( Create(param_dot), dt=0.2)
         self.play_dt(dt=2)
 
-        axes = Axes(x_range=[-rng,rng], y_range=[-rng,rng], x_length = 5, y_length = 5, tips=False).shift(RIGHT*3)
+        axes = Axes(x_range=self.rng, y_range=self.rng, x_length = 5, y_length = 5, tips=False).shift(RIGHT*3)
         labels = self.axis_labels(axes)
         self.play_dt(Create(axes), Create(labels),
                 param_axes.animate.shift(LEFT*3),
                 dt=1)
 
+        f_at_t = lambda x: self.f_at_t(x)
+        # without making this lambda funciton there is an error from pickling a lock
         f_graph = axes.plot(f_at_t, color=BLUE)
-        f_graph.add_updater(lambda ob: ob.become(axes.plot(f_at_t, color=BLUE)))
-        h_graph = axes.plot(h, color=GREEN)
+        f_graph.add_updater(lambda ob: ob.become(axes.plot(self.f_at_t, color=BLUE)))
+        h_graph = axes.plot(self.h, color=GREEN)
 
         param_dot = Dot(radius=0.1)
-        param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*parameters_at_t())),
+        param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*self.parameters_at_t())),
                                 call_updater=True)
         self.play_dt(Create(f_graph), Create(param_dot),dt=1)
         self.play_dt(dt=2)
-        data_f_dots, data_h_dots, err_bars = self.get_dots_and_err_bars(axes, f_at_t, h)
+        data_f_dots, data_h_dots, err_bars = self.get_dots_and_err_bars(axes, self.f_at_t, self.h)
 
         max_loss = 4
         loss_line = ColorNumberLine(x_range=[0, max_loss, 1], length=4.5, label_text='loss')
         loss_line.shift(RIGHT*6)
         loss_line.color_bar.shift(RIGHT*6)
-        def loss_func(f=f_at_t):
-            loss = sum([(h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
-            # return loss
-            return log2(1+ loss) # Purely for asthetic reasons
-        def param_loss(params):
-            return loss_func(lambda x: func_2param(x, params))
-        loss_dot = Dot(loss_line.n2p(loss_func()), color=RED)
-        loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(loss_func()), radius = 0.1)))
+        loss_dot = Dot(loss_line.n2p(self.loss_func(self.f_at_t)))
+        # loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(self.loss_func(self.f_at_t)), radius=0.1)))
+        loss_dot.add_updater(lambda dot: dot.move_to(loss_line.n2p(self.loss_func(self.f_at_t))))
 
         self.play_dt(axes.animate.shift(LEFT*1.),
                     param_axes.animate.shift(LEFT*1.),
@@ -398,31 +429,20 @@ class Intro2(Scene):
                     FadeIn(data_h_dots, lag_ratio=0.1),
                     FadeIn(loss_dot),
                     dt=1)
-        param_dot.add_updater(lambda ob: ob.set_color(loss_line.number_to_color(loss_func())))
+        param_dot.add_updater(lambda ob: ob.set_color(loss_line.number_to_color(self.loss_func(self.f_at_t))))
         self.play_dt(dt=5)
-
-        grid_size = 7
-        param_grid_list = []
-        grid_rng = rng - 0.3
-        for y in range(grid_size+1):
-            for x in range(grid_size+1):
-                if (-1)**y == -1: x = grid_size -x
-                # x,y range over 0 -> grid_size -1
-                p1 = -grid_rng + 2*grid_rng*x/grid_size
-                p2 = grid_rng - 2*grid_rng*y/grid_size
-                param_grid_list.append( np.array([p1,p2]) )
-
+        # constructs the grid of parameters that will cover the param axes
+        param_grid_list = self.parameter_grid()
         # Send the parameters to the beginning of the grid
         transition_t =  self.time_tracker.get_value()
-        param_at_transition_t = parameters_at_t()
+        param_at_transition_t = self.parameters_at_t()
         transition_time = 2
         def parameters_at_t():
-            # t = self.time_tracker.get_value() - zigzag_t
-            # print(type(self.time_tracker.get_value()))
             t = self.time_tracker.get_value()
             alpha = (t - transition_t)/transition_time
             params = alpha* param_grid_list[0] + (1-alpha)*param_at_transition_t
             return params
+        self.parameters_at_t = parameters_at_t
 
         self.play_dt(dt=transition_time)
 
@@ -431,11 +451,11 @@ class Intro2(Scene):
         time_per_dot = 0.2
         grid_losses = []
         for i, params in enumerate(param_grid_list):
-            grid_losses.append(param_loss(params))
+            grid_losses.append(self.param_loss(params))
             dot = Dot(param_axes.c2p(*params),
                         radius = 0.1,
                         fill_opacity=0.,
-                        color=loss_line.number_to_color(param_loss(params)))
+                        color=loss_line.number_to_color(self.param_loss(params)))
             def dot_opacity(dot, i=i):
                 t = self.time_tracker.get_value() - zigzag_t
                 if t/time_per_dot >=i:
@@ -453,11 +473,16 @@ class Intro2(Scene):
             if next_ind >= len(param_grid_list): next_ind = len(param_grid_list) -1
             alpha = t/time_per_dot %1
             return alpha*param_grid_list[next_ind] + (1-alpha)*param_grid_list[curr_ind]
+        self.parameters_at_t = parameters_at_t
         self.play_dt(dt=20)
 
 
 
 
+
+
+
+##############################################################################
 
 def normalize_val(val, min, max): return 150*(val-min)/(max - min)
 
