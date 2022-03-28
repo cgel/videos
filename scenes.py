@@ -255,6 +255,8 @@ class FuncSpaceScene(Scene):
         pass
     def f_at_t(self, x): pass
     def h(self, x): pass
+    def loss_func(self, f): pass
+    def param_loss(self, params): pass
 
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -262,6 +264,8 @@ class FuncSpaceScene(Scene):
         self.rng = [-self.axis_leg_size, self.axis_leg_size]
         self.data_x_vals = [-2.8, -1.2, 0.4, 2]
         self.time_tracker = ValueTracker(0.)
+        max_loss = 4.5
+        self.loss_line = ColorNumberLine(x_range=[0, max_loss, 1], length=4.5, label_text='loss')
 
 
     def get_title(self, txt):
@@ -321,33 +325,24 @@ class FuncSpaceScene(Scene):
     def axis_labels(self, ax, x_label='x', y_label='f(x)'):
         label_x = ax.get_x_axis_label(label="x")
         label_y = ax.get_y_axis_label("f(x)")
-        label_x.add_updater(lambda ob, ax=ax: ob.become( ax.get_x_axis_label(label=x_label).shift(DOWN*0.2).scale(0.8)))
-        label_y.add_updater(lambda ob, ax=ax: ob.become( ax.get_y_axis_label(label=y_label).shift(DOWN*0.2).scale(0.8)))
+        label_x.add_updater(lambda ob, ax=ax: ob.become( ax.get_x_axis_label(label=x_label).shift(DOWN*0.4).scale(0.8)))
+        label_y.add_updater(lambda ob, ax=ax: ob.become( ax.get_y_axis_label(label=y_label).shift(LEFT*0.4 + DOWN*0.).scale(0.8)))
         labels = VGroup(label_x, label_y)
         return labels
 
-    def parameter_grid(self, grid_size=7, rng= 4- 0.3):
-        param_grid_list = []
-        grid_rng = rng
-        for y in range(grid_size+1):
-            for x in range(grid_size+1):
-                if (-1)**y == -1: x = grid_size -x
-                # x,y range over 0 -> grid_size -1
-                p1 = -grid_rng + 2*grid_rng*x/grid_size
-                p2 = grid_rng - 2*grid_rng*y/grid_size
-                param_grid_list.append( np.array([p1,p2]) )
-        return param_grid_list
-
-    def color_map(self, res=500):
+    def color_map(self, res=20):
         screen_height = config.frame_height
         img_np = np.zeros([res, res,  3], np.uint8)
-        for x in range(res):
-            for y in range(res):
-                l = loss()
-                color = np.array(interpolate_color(RED, DARK_BLUE, alpha).rgb)
-                img_np[i,:, :] = color * 256
-        self.color_bar = ImageMobject(img_np, scale_to_resolution=color_res*(screen_height/self.length) ).set_z_index(-1)
-        # self.submobjects.append(img)
+        for i in range(res):
+            for j in range(res):
+                x = -self.axis_leg_size + j/(res -1) *2*self.axis_leg_size
+                y = self.axis_leg_size - i/(res-1) *2*self.axis_leg_size
+                l = self.param_loss([x,y])
+                color = np.array(self.loss_line.number_to_color(l).rgb)
+                img_np[i,j, :] = color * 256
+        img = ImageMobject(img_np, scale_to_resolution=res*(screen_height/(self.param_x_length)) ).set_z_index(-1)
+        img.move_to(self.param_axes.get_center())
+        return img
 
 
 class IntroColorMap(FuncSpaceScene):
@@ -355,15 +350,40 @@ class IntroColorMap(FuncSpaceScene):
         assert len(p) == 2
         # p1, p2 = p[0], p[1]
         p1, p2 = p[1], p[0]
+
         return poly(x, [0, p1/3, p2/20])
 
     def parameters_at_t(self):
         t = self.time_tracker.get_value()
-        return np.array([-1.*cos(t),2.5*sin(-t)])
+        wandering_parameters = np.array([-1.*cos(t),2.5*sin(-t)])
+        if self.parameter_stage == 'wandering':
+            return wandering_parameters
+        elif self.parameter_stage == 'transition':
+            # print('transition params')
+            if self.transition_t == None:
+                print('storing transition params')
+                self.transition_t = t
+                self.param_at_transition_t = wandering_parameters
+            alpha = (t - self.transition_t)/self.transition_length
+            transition_params = alpha*self.param_grid_list[0] + (1-alpha)*self.param_at_transition_t
+            # return self.param_grid_list[0]
+            return transition_params
+        elif self.parameter_stage == 'zigzag':
+            if self.zigzag_t == None: self.zigzag_t = t
+            t = t-self.zigzag_t
+
+            curr_ind = floor(t/self.time_per_dot)
+            next_ind = ceil(t/self.time_per_dot)
+            if curr_ind >= len(self.param_grid_list): curr_ind = len(self.param_grid_list) -1
+            if next_ind >= len(self.param_grid_list): next_ind = len(self.param_grid_list) -1
+            self.dot_grid[curr_ind].set_fill(opacity=1.)
+
+            alpha = t/self.time_per_dot %1
+            return alpha*self.param_grid_list[next_ind] + (1-alpha)*self.param_grid_list[curr_ind]
+        else: raise Exception('Not valid parameter_stage')
 
     def f_at_t(self, x):
         return self.func_2param(x, self.parameters_at_t())
-
 
     h_params = np.array([1.2, -1.5])
 
@@ -373,16 +393,54 @@ class IntroColorMap(FuncSpaceScene):
         loss = sum([(self.h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
         # return loss
         return log2(1+ loss) # Purely for asthetic reasons
+
     def param_loss(self, params):
         return self.loss_func(lambda x: self.func_2param(x, params))
 
+    def make_parameter_grid(self, grid_size=7, rng= 4- 0.3, opacity=1.):
+        param_grid_list = []
+        grid_rng = rng
+        for y in range(grid_size+1):
+            for x in range(grid_size+1):
+                if (-1)**y == -1: x = grid_size -x
+                # x,y range over 0 -> grid_size -1
+                p1 = -grid_rng + 2*grid_rng*x/grid_size
+                p2 = grid_rng - 2*grid_rng*y/grid_size
+                param_grid_list.append( np.array([p1,p2]) )
+        self.param_grid_list = param_grid_list
+
+        grid_losses = []
+        self.dot_grid = []
+        for i, params in enumerate(self.param_grid_list):
+            grid_losses.append(self.param_loss(params))
+            dot = Dot(self.param_axes.c2p(*params),
+                        radius = 0.1,
+                        fill_opacity=opacity,
+                        color=self.loss_line.number_to_color(self.param_loss(params)))
+            self.dot_grid.append(dot)
+            self.add(dot)
+        print('max loss in grid ', max(grid_losses))
+        print('min loss in grid ', min(grid_losses))
+
+
     def construct(self):
+        self.parameter_stage = 'wandering'
+        self.transition_t = None
+        self.zigzag_t = None
+        self.transition_length = 2
+        self.time_per_dot = 0.2
+        self.param_x_length = 5
+        self.param_y_length = 5
+
         # The main function family of the scene. Has 2 parameters
         title, write_title_anim = self.get_title("Function spaces with 2 parameters")
         self.play(write_title_anim, run_time=1)
         self.wait()
 
-        param_axes = Axes(x_range=self.rng, y_range=self.rng, x_length = 5, y_length = 5, tips=False)
+        param_axes = Axes(x_range=self.rng, y_range=self.rng, x_length=self.param_x_length, y_length=self.param_y_length, tips=False)
+        param_axes.shift(DOWN*0.5)
+        self.param_axes = param_axes
+
         # TODO: add to submobjects automatically
         param_labels = self.axis_labels(param_axes, x_label='p1', y_label='p2')
         param_dot = Dot()
@@ -394,7 +452,7 @@ class IntroColorMap(FuncSpaceScene):
         self.play_dt( Create(param_dot), dt=0.2)
         self.play_dt(dt=2)
 
-        axes = Axes(x_range=self.rng, y_range=self.rng, x_length = 5, y_length = 5, tips=False).shift(RIGHT*3)
+        axes = Axes(x_range=self.rng, y_range=self.rng, x_length = 5, y_length = 5, tips=False).shift(DOWN*0.5+RIGHT*3)
         labels = self.axis_labels(axes)
         self.play_dt(Create(axes), Create(labels),
                 param_axes.animate.shift(LEFT*3),
@@ -413,8 +471,7 @@ class IntroColorMap(FuncSpaceScene):
         self.play_dt(dt=2)
         data_f_dots, data_h_dots, err_bars = self.get_dots_and_err_bars(axes, self.f_at_t, self.h)
 
-        max_loss = 4
-        loss_line = ColorNumberLine(x_range=[0, max_loss, 1], length=4.5, label_text='loss')
+        loss_line = self.loss_line
         loss_line.shift(RIGHT*6)
         loss_line.color_bar.shift(RIGHT*6)
         loss_dot = Dot(loss_line.n2p(self.loss_func(self.f_at_t)))
@@ -432,49 +489,19 @@ class IntroColorMap(FuncSpaceScene):
         param_dot.add_updater(lambda ob: ob.set_color(loss_line.number_to_color(self.loss_func(self.f_at_t))))
         self.play_dt(dt=5)
         # constructs the grid of parameters that will cover the param axes
-        param_grid_list = self.parameter_grid()
-        # Send the parameters to the beginning of the grid
-        transition_t =  self.time_tracker.get_value()
-        param_at_transition_t = self.parameters_at_t()
-        transition_time = 2
-        def parameters_at_t():
-            t = self.time_tracker.get_value()
-            alpha = (t - transition_t)/transition_time
-            params = alpha* param_grid_list[0] + (1-alpha)*param_at_transition_t
-            return params
-        self.parameters_at_t = parameters_at_t
+        self.make_parameter_grid(opacity=0.)
+        self.parameter_stage = 'transition'
+        self.play_dt(dt=self.transition_length)
+        self.parameter_stage = 'zigzag'
+        zigzag_length = self.time_per_dot * len(self.dot_grid)
+        self.play_dt(dt=zigzag_length + 1)
 
-        self.play_dt(dt=transition_time)
+        color_map_img = self.color_map()
+        self.play(FadeIn(color_map_img))
+        self.wait()
+        return
 
-        # Time where the zigzag begins
-        zigzag_t = self.time_tracker.get_value()
-        time_per_dot = 0.2
-        grid_losses = []
-        for i, params in enumerate(param_grid_list):
-            grid_losses.append(self.param_loss(params))
-            dot = Dot(param_axes.c2p(*params),
-                        radius = 0.1,
-                        fill_opacity=0.,
-                        color=loss_line.number_to_color(self.param_loss(params)))
-            def dot_opacity(dot, i=i):
-                t = self.time_tracker.get_value() - zigzag_t
-                if t/time_per_dot >=i:
-                    dot.set_fill(opacity=1.)
-            dot.add_updater(dot_opacity)
-            self.add(dot)
-        print('max loss in grid ', max(grid_losses))
-        print('min loss in grid ', min(grid_losses))
 
-        def parameters_at_t():
-            t = self.time_tracker.get_value() - zigzag_t
-            curr_ind = floor(t/time_per_dot)
-            next_ind = ceil(t/time_per_dot)
-            if curr_ind >= len(param_grid_list): curr_ind = len(param_grid_list) -1
-            if next_ind >= len(param_grid_list): next_ind = len(param_grid_list) -1
-            alpha = t/time_per_dot %1
-            return alpha*param_grid_list[next_ind] + (1-alpha)*param_grid_list[curr_ind]
-        self.parameters_at_t = parameters_at_t
-        self.play_dt(dt=20)
 
 
 
