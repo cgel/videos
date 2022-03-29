@@ -49,231 +49,29 @@ class ColorNumberLine(NumberLine):
             return color
 
 
-# TODO: refactor into single parent class
-class IntroFuncSpaces(Scene):
-    def construct(self):
-        Title = Text("Finding functions that fit data", t2c={'functions':BLUE, 'data':GREEN}).move_to(UP*3.2).set_z_index(2)
-        title_background_rect = BackgroundRectangle(Title, fill_opacity=.7, buff=0.).set_z_index(1)
-        self.add(title_background_rect)
-        self.play(Write(Title), run_time=1)
-        self.wait()
-
-        axes = Axes(tips=False).scale(0.8)
-        labels = self.axis_labels(axes)
-        time_tracker = ValueTracker(0.)
-
-        h_params = np.array([2, 1, -1/10, 0])
-        def parameters_at_t():
-            t = time_tracker.get_value()
-            param_path_t = parameter_path(t)
-            if t < 20: return param_path_t
-            elif t < 25:
-                alpha = (25 -t)/5
-                return alpha*param_path_t + (1-alpha)*h_params
-            elif t < 26:
-                alpha = (26 -t)
-                return alpha*h_params + (1-alpha)*np.array([-1,1,0,0])
-            # elif t < 28: return np.array([-1,1,0,0])
-            elif t < 32:
-                s = t - 26
-                return np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
-            elif t < 33:
-                s = 32 - 26
-                last = np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
-                alpha = 33 - t
-                return alpha* last + (1- alpha)*np.array([-2, 0, 1/5, 0])
-            elif t < 38:
-                s = t-33
-                return np.array([-2*cos(s/2), sin(s), 1/5*cos(s), 0])
-            else: return h_params
-
-        def parameter_path(t):
-            return np.array([-2*cos(t/5),cos(-t/8), sin(t)/10, -sin(cos(t/5) + 1)/100])
-
-        def f_at_t(x): return poly(x, parameters_at_t())
-        def h(x): return poly(x, h_params)
-
-        f_graph = axes.plot(f_at_t, color=BLUE)
-        f_graph.add_updater(lambda ob: ob.become(axes.plot(f_at_t, color=BLUE)))
-        h_graph = axes.plot(h, color=GREEN)
-
-        data_x_vals = [-5, -1, 3, 4]
-        data_h_xy_vals = [ (x,h(x)) for x in data_x_vals ]
-        data_h_dots = [Dot(axes.c2p(x, y), color=GREEN) for x,y in data_h_xy_vals]
-        data_h_dots = VGroup(*data_h_dots)
-
-        self.play(Create(axes), Create(labels))
-        self.play(Create(f_graph), FadeIn(data_h_dots, lag_ratio=0.1))
-        self.play(Create(h_graph))
-        self.play(Uncreate(h_graph))
-
-        dt = 10
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-        data_f_xy_vals = [ (x,f_at_t(x)) for x in data_x_vals ]
-        data_f_dots = [Dot(axes.c2p(x, y), color=BLUE) for x,y in data_f_xy_vals]
-        data_f_dots = VGroup(*data_f_dots)
-        err_bars = [Line(hd, fd, color=RED) for hd, fd in zip(data_h_dots,  data_f_dots)]
-        err_bars = VGroup(*err_bars)
-
-        self.play(FadeIn(data_f_dots, lag_ratio=0.1), FadeIn(err_bars, lag_ratio=0.1))
-
-        # Make sure the f dots and error bars stay updated as t changes (or as the axes change position)
-        for x, dot in zip(data_x_vals, data_f_dots):
-            # Note how x=x needs to be passed in the lambda expresion. Otherwise all the lambda expresions use the last x in the list
-            dot.add_updater(lambda ob, x=x: ob.become(Dot(axes.c2p(x, f_at_t(x)), color=BLUE)))
-        for x, dot in zip(data_x_vals, data_h_dots):
-            dot.add_updater(lambda ob, x=x: ob.become(Dot(axes.c2p(x, h(x)), color=GREEN)))
-        for bar, hd, fd in zip(err_bars, data_h_dots, data_f_dots):
-            bar.add_updater(lambda ob, hd=hd, fd=fd: ob.become(Line(hd, fd, color=RED)))
-
-
-        dt = 5
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-        loss_line = NumberLine(x_range=[0, 100, 20], length=4.5, rotation=PI/2, include_numbers=False, label_direction=LEFT).shift(LEFT*5)
-        loss_text = Text('loss').scale(0.8)
-        loss_text.next_to(loss_line, DOWN)
-        self.play(axes.animate.scale(0.8).shift(RIGHT*2), Create(loss_line), Write(loss_text))
-        def loss_func():
-            loss = 0
-            for x in data_x_vals: loss += (h(x) - f_at_t(x))**2
-            return loss/len(data_x_vals)
-        loss_dot = Dot(loss_line.n2p(loss_func()), color=RED)
-        self.play(FadeIn(loss_dot))
-        loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(loss_func()), color=RED)))
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-        # We are at time 20. From now to t=25 f approaches h
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-        # self.clear()
-        self.play(FadeOut(Title, loss_line, loss_text, data_f_dots, data_h_dots, loss_dot, title_background_rect))
-        self.wait(1)
-        Title = Text("Parametrization of function spaces").move_to(UP*3.2).set_z_index(2)
-        title_background_rect = BackgroundRectangle(Title, fill_opacity=.7, buff=0.).set_z_index(1)
-        self.play(Write(Title), run_time=1)
-        self.add(title_background_rect)
-
-        render_text = True
-
-        # func_eq = MathTex("f(x)=").shift(LEFT*4+UP*2).scale(0.8)
-        func_eq = self.poly_f_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP*2).scale(0.8)
-        param_eq =self.param_list_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP).scale(0.8)
-        func_eq.set_z_index(1)
-        param_eq.set_z_index(1)
-        func_rect = self.background_rect(func_eq)
-        param_rect = self.background_rect(param_eq)
-        self.add(func_rect, param_rect)
-        if render_text:
-            func_eq.add_updater(lambda ob, dt=0: ob.become(self.poly_f_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP*2).scale(0.8)),
-                                call_updater=True)
-            param_eq.add_updater(lambda ob, dt=0: ob.become(self.param_list_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP).scale(0.8)),
-                                call_updater=True)
-        dt = 1
-        self.play(Write(func_eq), Write(param_eq),
-                  time_tracker.animate.set_value(time_tracker.get_value() + dt),
-                  run_time=dt)
-        # t = 26
-
-        # Now we take a path through linear functions
-        dt = 6
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-        # t = 32
-
-        #  Add one extra term. deg 2 polynomials
-        func_eq2 = self.poly_f_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP*2).scale(0.8)
-        param_eq2 =self.param_list_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP).scale(0.8)
-        func_eq2.set_z_index(1)
-        param_eq2.set_z_index(1)
-        func_rect2 = self.background_rect(func_eq)
-        param_rect2 = self.background_rect(param_rect)
-        self.remove(func_rect, param_rect)
-        self.add(func_rect2, param_rect2)
-
-        # Something about the updaters breaks Transform of func_eq and param_eq
-        # So we substitute them by brand new versions before running the Transform animation
-        func_eq_ = self.poly_f_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP*2).scale(0.8)
-        param_eq_ =self.param_list_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP).scale(0.8)
-        self.remove(func_eq, param_eq)
-        self.add(func_eq_, param_eq_)
-        func_eq = func_eq_
-        param_eq = param_eq_
-
-        dt = 1
-        self.play(Transform(func_eq_, func_eq2),
-                Transform(param_eq_, param_eq2),
-                time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-        if render_text:
-            func_eq.add_updater(lambda ob, dt=0: ob.become(self.poly_f_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP*2).scale(0.8)),
-                                call_updater=True)
-            param_eq.add_updater(lambda ob, dt=0: ob.become(self.param_list_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP).scale(0.8)),
-                                call_updater=True)
-        # t = 33
-
-        dt = 5
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-    def param_list_tex(self, params):
-        text = ['\\text{parameters }=', '[']
-        for i, p in enumerate(params):
-            if i == len(params) - 1:
-                text.append("{:.2f}".format(p))
-            else:
-                text.append("{:.2f}".format(p)+", " )
-        text.append(']')
-        return MathTex(''.join(text))
-
-    def poly_f_tex(self, params):
-        text = ['f(x)=', ]
-        for i, p in enumerate(params):
-            if i == 0: factor = "{:.2f}".format(p)
-            elif i == 1: factor = "+{:.2f}".format(p) + "x"
-            else: factor = "+{:.2f}".format(p) + "x^{}".format(i)
-            text.append(factor)
-        return MathTex(''.join(text))
-
-    def background_rect(self, ob, z_index = 0, opacity=0.7):
-        rect = BackgroundRectangle(ob, fill_opacity=.7, buff=0.).set_z_index(z_index)
-        return rect
-
-    def axis_labels(self, ax):
-        label_x = ax.get_x_axis_label(label="x")
-        label_y = ax.get_y_axis_label("f(x)")
-        label_x.add_updater(lambda ob, ax=ax: ob.become( ax.get_x_axis_label(label="x").shift(DOWN*0.2).scale(0.8)))
-        label_y.add_updater(lambda ob, ax=ax: ob.become( ax.get_y_axis_label(label="f(x)").shift(DOWN*0.2).scale(0.8)))
-        labels = VGroup(label_x, label_y)
-        return labels
-
-
-
-
-
 class FuncSpaceScene(Scene):
-    def parameters_at_t(self):
-        pass
-    def f_at_t(self, x): pass
-    def h(self, x): pass
-    def loss_func(self, f): pass
-    def param_loss(self, params): pass
-
     def __init__(self, *args, **kwargs):
         super().__init__()
         self.axis_leg_size = 4
         self.rng = [-self.axis_leg_size, self.axis_leg_size]
         self.data_x_vals = [-2.8, -1.2, 0.4, 2]
         self.time_tracker = ValueTracker(0.)
-        max_loss = 4.5
-        self.loss_line = ColorNumberLine(x_range=[0, max_loss, 1], length=4.5, label_text='loss')
 
+    def parameters_at_t(self): raise Exception('Needs to be implemented by child chass')
+    def f_at_t(self, x): raise Exception('Needs to be implemented by child chass')
+    def h(self, x): raise Exception('Needs to be implemented by child chass')
+    def loss_func(self, f): raise Exception('Needs to be implemented by child chass')
+    def param_loss(self, params): raise Exception('Needs to be implemented by child chass')
 
     def get_title(self, txt):
-        title = Text(txt).move_to(UP*3.2).set_z_index(2)
+        if type(txt) == str:
+            title = Text(txt)
+        else:
+            title = txt
+        title.move_to(UP*3.2).set_z_index(2)
         title_background_rect = BackgroundRectangle(title, fill_opacity=.7, buff=0.).set_z_index(1)
         write_anim = AnimationGroup(Write(title), Create(title_background_rect))
         return VGroup(title, title_background_rect), write_anim
-
         # self.add(title_background_rect)
 
     def get_func_dots(self, axes, f, color):
@@ -290,7 +88,13 @@ class FuncSpaceScene(Scene):
         err_bars = [Line(d1, d2, color=RED) for d1, d2 in zip(f1_dots, f2_dots)]
         err_bars = VGroup(*err_bars)
         for bar, d1, d2 in zip(err_bars, f1_dots, f2_dots):
-                bar.add_updater(lambda ob, d1=d1, d2=d2: ob.put_start_and_end_on(d1.get_center(), d2.get_center()))
+            def update_bar(bar, d1=d1, d2=d2):
+                v1, v2 = d1.get_center(), d2.get_center()
+                # We hide the bar if there is no error
+                if np.all(np.abs(v1-v2)<0.01): bar.set_fill(opacity=0.)
+                else: bar.put_start_and_end_on(v1, v2).set_fill(opacity=1.)
+            bar.add_updater(update_bar)
+            # bar.add_updater(lambda ob, d1=d1, d2=d2: ob.put_start_and_end_on(d1.get_center(), d2.get_center()))
         return f1_dots, f2_dots, err_bars
 
     def tick_time(self, dt):
@@ -345,23 +149,235 @@ class FuncSpaceScene(Scene):
         return img
 
 
+# TODO: refactor into single parent class
+class IntroFuncSpaces(FuncSpaceScene):
+    h_params = np.array([2, 1, -1/10, 0])
+    def wandering_parameters(self, t):
+        return np.array([-2*cos(t/5),cos(-t/8), sin(t)/10, -sin(cos(t/5) + 1)/100])
+    def parameters_at_t(self):
+        t = self.time_tracker.get_value()
+        wandering_parameters = self.wandering_parameters(t)
+        linear_parameters = np.array([-1,1,0,0])
+        quadratic_parameters = np.array([-2, 0, 1/5, 0])
+        if self.parameter_stage == 'wandering': return wandering_parameters
+        elif self.parameter_stage == 'good_fit':
+            if self.good_fit_t == None: self.good_fit_t = t
+            alpha = (t - self.good_fit_t)/4
+            alpha = min(alpha, 1)
+            return alpha*self.h_params + (1-alpha)* wandering_parameters
+        elif self.parameter_stage == 'linear_wandering':
+            if self.linear_wandering_t == None: self.linear_wandering_t = t
+            # interpolate to a linear function
+            linear_transition_length = 2
+            alpha = (t-self.linear_wandering_t)/linear_transition_length
+            if alpha < 1: return alpha*linear_parameters + (1-alpha)* self.h_params
+            s= t - self.linear_wandering_t - linear_transition_length
+            # We store the linear parameters so we can use then in the next transition interpolation
+            self.last_linear = np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
+            return self.last_linear
+        elif self.parameter_stage == 'quadratic_wandering':
+            if self.quadratic_wandering_t == None: self.quadratic_wandering_t = t
+            # interpolate to a quadratic function
+            quadratic_transition_length = 2
+            alpha = (t-self.quadratic_wandering_t)/quadratic_transition_length
+            if alpha < 1:
+                return alpha* self.last_linear + (1- alpha)*quadratic_parameters
+            s= t - self.quadratic_wandering_t - quadratic_transition_length
+            return np.array([-2*cos(s/2), sin(s), 1/5*cos(s), 0])
+        else: raise Exception('Not valid parameter_stage', self.parameter_stage)
+        # # elif t < 28: return np.array([-1,1,0,0])
+        # elif t < 32:
+        #     s = t - 26
+        #     return np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
+        # elif t < 33:
+        #     s = 32 - 26
+        #     last = np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
+        #     alpha = 33 - t
+        #     return alpha* last + (1- alpha)*np.array([-2, 0, 1/5, 0])
+        # elif t < 38:
+        #     s = t-33
+        #     return np.array([-2*cos(s/2), sin(s), 1/5*cos(s), 0])
+        # else: return h_params
+        #
+    def f_at_t(self, x): return poly(x, self.parameters_at_t())
+
+    def h(self, x): return poly(x, self.h_params)
+
+    def loss_func(self, f):
+        loss = sum([(self.h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
+        return log2(1+ loss) # Purely for asthetic reasons
+
+    # def param_loss(self, params):
+    #     return self.loss_func(lambda x: self.func_2param(x, params))
+
+
+    def construct(self):
+        self.parameter_stage = 'wandering'
+        self.good_fit_t = None
+        self.linear_wandering_t = None
+        self.quadratic_wandering_t = None
+
+        Title = Text("Finding functions that fit data", t2c={'functions':BLUE, 'data':GREEN})
+        title, write_title_anim = self.get_title(Title)
+        self.play(write_title_anim, run_time=1)
+        self.wait()
+
+        axes = Axes(tips=False).scale(0.8).shift(DOWN*0.5)
+        labels = self.axis_labels(axes, x_label='x', y_label='f(x)')
+        self.play(Create(axes), Write(labels))
+
+        f_graph = axes.plot(lambda x: self.f_at_t(x), color=BLUE)
+        f_graph.add_updater(lambda ob: ob.become(axes.plot(self.f_at_t, color=BLUE)))
+        h_graph = axes.plot(lambda x: self.h(x), color=GREEN)
+
+        self.data_x_vals = [-5, -1, 3, 4]
+        data_f_dots, data_h_dots, err_bars = self.get_dots_and_err_bars(axes, self.f_at_t, self.h)
+
+        self.play_dt(Create(f_graph), FadeIn(data_h_dots, lag_ratio=0.1))
+        self.play_dt(dt=5)
+        self.play_dt(Create(h_graph))
+        self.play_dt(dt=1)
+        # self.play_dt(Uncreate(h_graph))
+        self.play_dt(FadeOut(h_graph))
+        self.play_dt(dt=5)
+        self.play_dt( FadeIn(err_bars, lag_ratio=0.1), FadeIn(data_f_dots, lag_ratio=0.1))
+        self.play_dt(dt=5)
+
+
+        max_loss = 8
+        self.loss_line = ColorNumberLine(x_range=[0, max_loss, 2], length=4.5, label_text='loss')
+        loss_line = self.loss_line
+        loss_line.shift(RIGHT*5+ DOWN*0.5)
+        loss_line.color_bar.shift(RIGHT*5+ DOWN*0.5)
+        loss_dot = Dot(loss_line.n2p(self.loss_func(self.f_at_t)))
+        # loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(self.loss_func(self.f_at_t)), radius=0.1)))
+        loss_dot.add_updater(lambda dot: dot.move_to(loss_line.n2p(self.loss_func(self.f_at_t))))
+        self.play_dt(Create(loss_line), FadeIn(loss_line.color_bar),
+                    axes.animate.shift(LEFT*2.5).scale(0.8),
+                    FadeIn(loss_dot),
+                    dt=1)
+        self.play_dt(dt=5)
+
+        self.parameter_stage = 'good_fit'
+        self.play_dt(dt=5)
+
+        # self.clear()
+        self.parameter_stage = 'linear_wandering'
+        self.play_dt(FadeOut(Title, loss_line, loss_line.color_bar, err_bars, data_f_dots, data_h_dots, loss_dot))
+        self.play_dt(dt=1)
+        Title = Text("Parametrization of function spaces")
+        title, write_title_anim = self.get_title(Title)
+        self.play_dt(write_title_anim, dt=1)
+        self.play_dt(dt=1)
+        self.play_dt(dt=5)
+
+
+        # func_eq = MathTex("f(x)=").shift(LEFT*4+UP*2).scale(0.8)
+        text_shift = RIGHT*4 -UP*1
+        up_shift = 1.5
+        func_eq, write_func_anim = self.poly_f_tex(self.parameters_at_t()[0:2]).shift(text_shift).scale(0.8)
+        param_eq, write_param_anim =self.param_list_tex(self.parameters_at_t()[0:2]).shift(text_shift + 2*up_shift).scale(0.8)
+        # func_eq.set_z_index(1)
+        # param_eq.set_z_index(1)
+        # func_rect = self.background_rect(func_eq)
+        # param_rect = self.background_rect(param_eq)
+        # self.add(func_rect, param_rect)
+        render_text = True
+        if render_text:
+        dt = 1
+        self.play_dt(Write(func_eq), Write(param_eq), dt=dt)
+        self.play_dt(dt=1)
+        self.parameter_stage = 'quadratic_wandering'
+        self.add(Square())
+        self.play_dt(dt=10)
+        return
+        # t = 26
+
+        # Now we take a path through linear functions
+        dt = 6
+        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
+        # t = 32
+
+        #  Add one extra term. deg 2 polynomials
+        func_eq2, write_func_anim = self.poly_f_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP*2).scale(0.8)
+        param_eq2, write_param_anim =self.param_list_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP).scale(0.8)
+        func_eq2.set_z_index(1)
+        param_eq2.set_z_index(1)
+        func_rect2 = self.background_rect(func_eq)
+        param_rect2 = self.background_rect(param_rect)
+        self.remove(func_rect, param_rect)
+        self.add(func_rect2, param_rect2)
+
+        # Something about the updaters breaks Transform of func_eq and param_eq
+        # So we substitute them by brand new versions before running the Transform animation
+        func_eq_ = self.poly_f_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP*2).scale(0.8)
+        param_eq_ =self.param_list_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP).scale(0.8)
+        self.remove(func_eq, param_eq)
+        self.add(func_eq_, param_eq_)
+        func_eq = func_eq_
+        param_eq = param_eq_
+
+        dt = 1
+        self.play(Transform(func_eq_, func_eq2),
+                Transform(param_eq_, param_eq2),
+                time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
+
+        if render_text:
+            func_eq.add_updater(lambda ob, dt=0: ob.become(self.poly_f_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP*2).scale(0.8)),
+                                call_updater=True)
+            param_eq.add_updater(lambda ob, dt=0: ob.become(self.param_list_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP).scale(0.8)),
+                                call_updater=True)
+        # t = 33
+
+        dt = 5
+        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
+
+    def param_list_tex(self, params):
+        text = ['\\text{parameters }=', '[']
+        for i, p in enumerate(params):
+            if i == len(params) - 1:
+                text.append("{:.2f}".format(p))
+            else:
+                text.append("{:.2f}".format(p)+", " )
+        text.append(']')
+        tex = MathTex(''.join(text))
+        rect = self.background_rect(tex)
+        write_anim = AnimationGroup(Write(tex), FadeIn(rect))
+        param_eq.add_updater(lambda ob, dt=0: ob.become(self.param_list_tex(self.parameters_at_t()[0:2]).shift(text_shift + 2*up_shift).scale(0.8)),
+                            call_updater=True)
+        return tex, write_anim
+
+    def poly_f_tex(self, params):
+        text = ['f(x)=', ]
+        for i, p in enumerate(params):
+            if i == 0: factor = "{:.2f}".format(p)
+            elif i == 1: factor = "+{:.2f}".format(p) + "x"
+            else: factor = "+{:.2f}".format(p) + "x^{}".format(i)
+            text.append(factor)
+        tex = MathTex(''.join(text))
+        rect = self.background_rect(tex)
+        write_anim = AnimationGroup(Write(tex), FadeIn(rect))
+        tex.add_updater(lambda ob, dt=0: ob.become(self.poly_f_tex(self.parameters_at_t()[0:2]).shift(text_shift).scale(0.8)),
+                            call_updater=True)
+        return tex, write_anim
+
+
 class IntroColorMap(FuncSpaceScene):
     def func_2param(self, x, p):
         assert len(p) == 2
-        # p1, p2 = p[0], p[1]
         p1, p2 = p[1], p[0]
-
         return poly(x, [0, p1/3, p2/20])
+
+    def wandering_parameters(self, t):
+        return np.array([-1.*cos(t),2.5*sin(-t)])
 
     def parameters_at_t(self):
         t = self.time_tracker.get_value()
-        wandering_parameters = np.array([-1.*cos(t),2.5*sin(-t)])
+        wandering_parameters = self.wandering_parameters(t)
         if self.parameter_stage == 'wandering':
             return wandering_parameters
         elif self.parameter_stage == 'transition':
-            # print('transition params')
             if self.transition_t == None:
-                print('storing transition params')
                 self.transition_t = t
                 self.param_at_transition_t = wandering_parameters
             alpha = (t - self.transition_t)/self.transition_length
@@ -371,15 +387,20 @@ class IntroColorMap(FuncSpaceScene):
         elif self.parameter_stage == 'zigzag':
             if self.zigzag_t == None: self.zigzag_t = t
             t = t-self.zigzag_t
-
             curr_ind = floor(t/self.time_per_dot)
             next_ind = ceil(t/self.time_per_dot)
             if curr_ind >= len(self.param_grid_list): curr_ind = len(self.param_grid_list) -1
             if next_ind >= len(self.param_grid_list): next_ind = len(self.param_grid_list) -1
             self.dot_grid[curr_ind].set_fill(opacity=1.)
-
             alpha = t/self.time_per_dot %1
             return alpha*self.param_grid_list[next_ind] + (1-alpha)*self.param_grid_list[curr_ind]
+        elif self.parameter_stage == 'transition2':
+            if self.transition2_t == None:
+                self.transition2_t = t
+            alpha = (t - self.transition2_t)/self.transition_length
+            transition_params = alpha*self.wandering_parameters(self.transition2_t+self.transition_length) + (1-alpha)*self.param_grid_list[-1]
+            # return self.param_grid_list[0]
+            return transition_params
         else: raise Exception('Not valid parameter_stage')
 
     def f_at_t(self, x):
@@ -391,7 +412,6 @@ class IntroColorMap(FuncSpaceScene):
 
     def loss_func(self, f):
         loss = sum([(self.h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
-        # return loss
         return log2(1+ loss) # Purely for asthetic reasons
 
     def param_loss(self, params):
@@ -413,7 +433,7 @@ class IntroColorMap(FuncSpaceScene):
         self.dot_grid = []
         for i, params in enumerate(self.param_grid_list):
             grid_losses.append(self.param_loss(params))
-            dot = Dot(self.param_axes.c2p(*params),
+            dot = Dot(axes.c2p(*params),
                         radius = 0.1,
                         fill_opacity=opacity,
                         color=self.loss_line.number_to_color(self.param_loss(params)))
@@ -427,6 +447,7 @@ class IntroColorMap(FuncSpaceScene):
         self.parameter_stage = 'wandering'
         self.transition_t = None
         self.zigzag_t = None
+        self.transition2_t = None
         self.transition_length = 2
         self.time_per_dot = 0.2
         self.param_x_length = 5
@@ -464,16 +485,16 @@ class IntroColorMap(FuncSpaceScene):
         f_graph.add_updater(lambda ob: ob.become(axes.plot(self.f_at_t, color=BLUE)))
         h_graph = axes.plot(self.h, color=GREEN)
 
-        param_dot = Dot(radius=0.1)
-        param_dot.add_updater(lambda ob, dt=0: ob.move_to(param_axes.c2p(*self.parameters_at_t())),
-                                call_updater=True)
-        self.play_dt(Create(f_graph), Create(param_dot),dt=1)
+        self.play_dt(Create(f_graph))
         self.play_dt(dt=2)
         data_f_dots, data_h_dots, err_bars = self.get_dots_and_err_bars(axes, self.f_at_t, self.h)
 
+        max_loss = 5
+        self.loss_line = ColorNumberLine(x_range=[0, max_loss, 1], length=4.5, label_text='loss')
         loss_line = self.loss_line
-        loss_line.shift(RIGHT*6)
-        loss_line.color_bar.shift(RIGHT*6)
+
+        loss_line.shift(RIGHT*6 + DOWN*0.3)
+        loss_line.color_bar.shift(RIGHT*6 + DOWN*0.3)
         loss_dot = Dot(loss_line.n2p(self.loss_func(self.f_at_t)))
         # loss_dot.add_updater(lambda ob: ob.become(Dot(loss_line.n2p(self.loss_func(self.f_at_t)), radius=0.1)))
         loss_dot.add_updater(lambda dot: dot.move_to(loss_line.n2p(self.loss_func(self.f_at_t))))
@@ -494,11 +515,16 @@ class IntroColorMap(FuncSpaceScene):
         self.play_dt(dt=self.transition_length)
         self.parameter_stage = 'zigzag'
         zigzag_length = self.time_per_dot * len(self.dot_grid)
-        self.play_dt(dt=zigzag_length + 1)
-
+        self.play_dt(dt=zigzag_length)
         color_map_img = self.color_map()
-        self.play(FadeIn(color_map_img))
-        self.wait()
+        param_dot.updaters.pop() # Stops the color from updating
+        param_dot.set_fill(color=WHITE)
+        self.parameter_stage = 'transition2'
+        self.play_dt(FadeIn(color_map_img), dt=1/2)
+        self.play_dt(dt=self.transition_length-1/2)
+        # self.play_dt(dt=self.transition_length)
+        self.parameter_stage = 'wandering'
+        self.play_dt(dt=10)
         return
 
 
