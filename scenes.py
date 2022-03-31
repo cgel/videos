@@ -76,7 +76,7 @@ class FuncSpaceScene(Scene):
 
     def get_func_dots(self, axes, f, color):
         data_xy_vals = [ (x,f(x)) for x in self.data_x_vals ]
-        data_dots = [Dot(axes.c2p(x, y), color=color) for x,y in data_xy_vals]
+        data_dots = [Dot(axes.c2p(x, y), color=color).set_z_index(1) for x,y in data_xy_vals]
         data_dots = VGroup(*data_dots)
         for x, dot in zip(self.data_x_vals, data_dots):
             dot.add_updater(lambda ob, x=x: ob.move_to(axes.c2p(x, f(x) ) ))
@@ -85,16 +85,15 @@ class FuncSpaceScene(Scene):
     def get_dots_and_err_bars(self, axes, f1, f2):
         f1_dots = self.get_func_dots(axes, f1, BLUE)
         f2_dots = self.get_func_dots(axes, f2, GREEN)
-        err_bars = [Line(d1, d2, color=RED) for d1, d2 in zip(f1_dots, f2_dots)]
+        err_bars = [Line(d1, d2, color=RED).set_z_index(0) for d1, d2 in zip(f1_dots, f2_dots)]
         err_bars = VGroup(*err_bars)
         for bar, d1, d2 in zip(err_bars, f1_dots, f2_dots):
-            def update_bar(bar, d1=d1, d2=d2):
+            def update_bar(ob, d1=d1, d2=d2):
                 v1, v2 = d1.get_center(), d2.get_center()
                 # We hide the bar if there is no error
-                if np.all(np.abs(v1-v2)<0.01): bar.set_fill(opacity=0.)
-                else: bar.put_start_and_end_on(v1, v2).set_fill(opacity=1.)
+                if np.all(np.abs(v1-v2)<0.01): ob.set_fill(opacity=0.)
+                else: ob.put_start_and_end_on(v1, v2).set_fill(opacity=1.)
             bar.add_updater(update_bar)
-            # bar.add_updater(lambda ob, d1=d1, d2=d2: ob.put_start_and_end_on(d1.get_center(), d2.get_center()))
         return f1_dots, f2_dots, err_bars
 
     def tick_time(self, dt):
@@ -181,24 +180,11 @@ class IntroFuncSpaces(FuncSpaceScene):
             quadratic_transition_length = 2
             alpha = (t-self.quadratic_wandering_t)/quadratic_transition_length
             if alpha < 1:
-                return alpha* self.last_linear + (1- alpha)*quadratic_parameters
+                return alpha*quadratic_parameters + (1- alpha)*self.last_linear
             s= t - self.quadratic_wandering_t - quadratic_transition_length
             return np.array([-2*cos(s/2), sin(s), 1/5*cos(s), 0])
         else: raise Exception('Not valid parameter_stage', self.parameter_stage)
-        # # elif t < 28: return np.array([-1,1,0,0])
-        # elif t < 32:
-        #     s = t - 26
-        #     return np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
-        # elif t < 33:
-        #     s = 32 - 26
-        #     last = np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
-        #     alpha = 33 - t
-        #     return alpha* last + (1- alpha)*np.array([-2, 0, 1/5, 0])
-        # elif t < 38:
-        #     s = t-33
-        #     return np.array([-2*cos(s/2), sin(s), 1/5*cos(s), 0])
-        # else: return h_params
-        #
+
     def f_at_t(self, x): return poly(x, self.parameters_at_t())
 
     def h(self, x): return poly(x, self.h_params)
@@ -206,10 +192,6 @@ class IntroFuncSpaces(FuncSpaceScene):
     def loss_func(self, f):
         loss = sum([(self.h(x) - f(x))**2 for x in self.data_x_vals])/len(self.data_x_vals)
         return log2(1+ loss) # Purely for asthetic reasons
-
-    # def param_loss(self, params):
-    #     return self.loss_func(lambda x: self.func_2param(x, params))
-
 
     def construct(self):
         self.parameter_stage = 'wandering'
@@ -261,78 +243,49 @@ class IntroFuncSpaces(FuncSpaceScene):
         self.parameter_stage = 'good_fit'
         self.play_dt(dt=5)
 
-        # self.clear()
         self.parameter_stage = 'linear_wandering'
         self.play_dt(FadeOut(Title, loss_line, loss_line.color_bar, err_bars, data_f_dots, data_h_dots, loss_dot))
         self.play_dt(dt=1)
         Title = Text("Parametrization of function spaces")
         title, write_title_anim = self.get_title(Title)
         self.play_dt(write_title_anim, dt=1)
-        self.play_dt(dt=1)
+        f_eq, p_eq = self.param_equs(2)
+        self.play_dt(Write(f_eq), Write(p_eq), dt=1)
         self.play_dt(dt=5)
 
-
-        # func_eq = MathTex("f(x)=").shift(LEFT*4+UP*2).scale(0.8)
-        text_shift = RIGHT*4 -UP*1
-        up_shift = 1.5
-        func_eq, write_func_anim = self.poly_f_tex(self.parameters_at_t()[0:2]).shift(text_shift).scale(0.8)
-        param_eq, write_param_anim =self.param_list_tex(self.parameters_at_t()[0:2]).shift(text_shift + 2*up_shift).scale(0.8)
-        # func_eq.set_z_index(1)
-        # param_eq.set_z_index(1)
-        # func_rect = self.background_rect(func_eq)
-        # param_rect = self.background_rect(param_eq)
-        # self.add(func_rect, param_rect)
-        render_text = True
-        if render_text:
-        dt = 1
-        self.play_dt(Write(func_eq), Write(param_eq), dt=dt)
-        self.play_dt(dt=1)
         self.parameter_stage = 'quadratic_wandering'
-        self.add(Square())
-        self.play_dt(dt=10)
+        self.play_transform_equs(f_eq, p_eq, 3)
+        self.play_dt(dt=2)
+        self.play_dt(dt=3)
         return
-        # t = 26
 
-        # Now we take a path through linear functions
-        dt = 6
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-        # t = 32
+    def param_equs(self, n):
+        text_shift = RIGHT*4 -UP*1
+        up_shift = 1.2
+        params = self.parameters_at_t()[0:n]
+        p_eq  = VMobject()
+        f_eq  = VMobject()
+        p_eq.add_updater(lambda ob, dt=0:
+                ob.become(self.param_list_tex_(self.parameters_at_t()[0:n]).shift(text_shift + UP*up_shift)),
+                            call_updater=True)
+        f_eq.add_updater(lambda ob, dt=0:
+                ob.become(self.poly_f_tex_(self.parameters_at_t()[0:n]).shift(text_shift)),
+                            call_updater=True)
+        # eq_group = VGroup(p_eq, f_eq)
+        return f_eq, p_eq
 
-        #  Add one extra term. deg 2 polynomials
-        func_eq2, write_func_anim = self.poly_f_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP*2).scale(0.8)
-        param_eq2, write_param_anim =self.param_list_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP).scale(0.8)
-        func_eq2.set_z_index(1)
-        param_eq2.set_z_index(1)
-        func_rect2 = self.background_rect(func_eq)
-        param_rect2 = self.background_rect(param_rect)
-        self.remove(func_rect, param_rect)
-        self.add(func_rect2, param_rect2)
+    def play_transform_equs(self, f_eq, p_eq, new_n):
+        f_eq.updaters.pop()
+        p_eq.updaters.pop()
+        f_eq2, p_eq2 = self.param_equs(new_n)
+        f_up2 = f_eq2.updaters.pop()
+        p_up2 = p_eq2.updaters.pop()
+        self.play_dt(Transform(f_eq, f_eq2),Transform(p_eq, p_eq2), dt=1)
+        f_eq.updaters.append(f_up2)
+        p_eq.updaters.append(p_up2)
 
-        # Something about the updaters breaks Transform of func_eq and param_eq
-        # So we substitute them by brand new versions before running the Transform animation
-        func_eq_ = self.poly_f_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP*2).scale(0.8)
-        param_eq_ =self.param_list_tex(parameters_at_t()[0:2]).shift(LEFT*4+UP).scale(0.8)
-        self.remove(func_eq, param_eq)
-        self.add(func_eq_, param_eq_)
-        func_eq = func_eq_
-        param_eq = param_eq_
 
-        dt = 1
-        self.play(Transform(func_eq_, func_eq2),
-                Transform(param_eq_, param_eq2),
-                time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-        if render_text:
-            func_eq.add_updater(lambda ob, dt=0: ob.become(self.poly_f_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP*2).scale(0.8)),
-                                call_updater=True)
-            param_eq.add_updater(lambda ob, dt=0: ob.become(self.param_list_tex(parameters_at_t()[0:3]).shift(LEFT*4+UP).scale(0.8)),
-                                call_updater=True)
-        # t = 33
-
-        dt = 5
-        self.play(time_tracker.animate.set_value(time_tracker.get_value() + dt), run_time=dt)
-
-    def param_list_tex(self, params):
+    def param_list_tex_(self, params):
         text = ['\\text{parameters }=', '[']
         for i, p in enumerate(params):
             if i == len(params) - 1:
@@ -340,26 +293,33 @@ class IntroFuncSpaces(FuncSpaceScene):
             else:
                 text.append("{:.2f}".format(p)+", " )
         text.append(']')
-        tex = MathTex(''.join(text))
-        rect = self.background_rect(tex)
-        write_anim = AnimationGroup(Write(tex), FadeIn(rect))
-        param_eq.add_updater(lambda ob, dt=0: ob.become(self.param_list_tex(self.parameters_at_t()[0:2]).shift(text_shift + 2*up_shift).scale(0.8)),
-                            call_updater=True)
-        return tex, write_anim
+        tex = MathTex(''.join(text)).scale(0.7)
+        return tex
 
-    def poly_f_tex(self, params):
+    def poly_f_tex_(self, params):
         text = ['f(x)=', ]
+        def signed_num(p):
+            if p>=0: return "+{:.2f}".format(p)
+            else: return "{:.2f}".format(p)
         for i, p in enumerate(params):
             if i == 0: factor = "{:.2f}".format(p)
-            elif i == 1: factor = "+{:.2f}".format(p) + "x"
-            else: factor = "+{:.2f}".format(p) + "x^{}".format(i)
+            elif i == 1: factor = signed_num(p) + "x"
+            else: factor = signed_num(p) + "x^{}".format(i)
             text.append(factor)
-        tex = MathTex(''.join(text))
-        rect = self.background_rect(tex)
-        write_anim = AnimationGroup(Write(tex), FadeIn(rect))
-        tex.add_updater(lambda ob, dt=0: ob.become(self.poly_f_tex(self.parameters_at_t()[0:2]).shift(text_shift).scale(0.8)),
-                            call_updater=True)
-        return tex, write_anim
+        tex = MathTex(''.join(text)).scale(0.7)
+        # rect = self.background_rect(tex)
+        # tex.submobjects.append(rect).shift(text_shift).scale(0.8)        return tex
+        return tex
+
+
+class TransTex(IntroFuncSpaces):
+    def construct(self):
+        self.parameter_stage = 'wandering'
+        f_eq, p_eq = self.param_equs(2)
+        self.play_dt(Write(f_eq), Write(p_eq),dt=1)
+        self.play_dt()
+        self.play_transform_equs(f_eq, p_eq, 3)
+        self.play_dt(dt=3)
 
 
 class IntroColorMap(FuncSpaceScene):
