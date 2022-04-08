@@ -1,5 +1,6 @@
 from manim import *
 from colour import Color
+import math
 from math import sin, cos, sqrt, exp, log, log2, floor, ceil
 
 def poly(x, parameters):
@@ -161,15 +162,27 @@ class IntroFuncSpaces(FuncSpaceScene):
         if self.parameter_stage == 'wandering': return wandering_parameters
         elif self.parameter_stage == 'good_fit':
             if self.good_fit_t == None: self.good_fit_t = t
-            alpha = (t - self.good_fit_t)/4
-            alpha = min(alpha, 1)
-            return alpha*self.h_params + (1-alpha)* wandering_parameters
+            good_fit_transition_time = 4.
+            hold_factor = 0.2
+            alpha = (t - self.good_fit_t)/good_fit_transition_time
+            # print('good fit t', self.good_fit_t, t, t - self.good_fit_t)
+            if alpha < 1.:
+                self.last_good_fit = alpha*self.h_params + (1-alpha)*wandering_parameters
+            elif alpha >= 1 and alpha < 1+ hold_factor:
+                self.last_good_fit = self.h_params
+            else:
+            # elif alpha >= 1+hold_factor:
+                betta = alpha - (1+hold_factor)
+                betta = min(1, betta)
+                self.last_good_fit = betta* wandering_parameters + (1-betta)*self.h_params
+            return self.last_good_fit
         elif self.parameter_stage == 'linear_wandering':
             if self.linear_wandering_t == None: self.linear_wandering_t = t
             # interpolate to a linear function
             linear_transition_length = 2
             alpha = (t-self.linear_wandering_t)/linear_transition_length
-            if alpha < 1: return alpha*linear_parameters + (1-alpha)* self.h_params
+            # print('linear wandering alpha', 1/9)
+            if alpha < 1: return alpha*linear_parameters + (1-alpha)* self.last_good_fit
             s= t - self.linear_wandering_t - linear_transition_length
             # We store the linear parameters so we can use then in the next transition interpolation
             self.last_linear = np.array([-cos(2*PI*s/5),cos(2*PI*s/10),0,0])
@@ -224,6 +237,8 @@ class IntroFuncSpaces(FuncSpaceScene):
         self.play_dt(dt=5)
         self.play_dt( FadeIn(err_bars, lag_ratio=0.1), FadeIn(data_f_dots, lag_ratio=0.1))
         self.play_dt(dt=5)
+        self.parameter_stage = 'good_fit'
+        self.play_dt(dt=5)
 
 
         max_loss = 8
@@ -238,9 +253,6 @@ class IntroFuncSpaces(FuncSpaceScene):
                     axes.animate.shift(LEFT*2.5).scale(0.8),
                     FadeIn(loss_dot),
                     dt=1)
-        self.play_dt(dt=5)
-
-        self.parameter_stage = 'good_fit'
         self.play_dt(dt=5)
 
         self.parameter_stage = 'linear_wandering'
@@ -312,14 +324,134 @@ class IntroFuncSpaces(FuncSpaceScene):
         return tex
 
 
-class TransTex(IntroFuncSpaces):
+class RandomParamPath:
+    def __init__(self, param_shape, point_num=10, rng=1):
+        points = []
+        for _ in range(point_num):
+            params = rng* np.random.random(param_shape) - rng/2
+            points.append(params)
+        self.points = np.stack(points)
+        self.curve = bezier(self.points)
+
+    def __call__(self, t):
+        return self.curve(t)
+
+
+class FuncSpaceZoo(Scene):
+    def poly(self, x):
+        t = self.t_tracker.get_value()
+        poly_params = self.poly_param_curve(t)
+        res = 0
+        for i in range(poly_params.size): res += poly_params[i] * x**i
+        return res
+
+    def harmonic(self, x):
+        t = self.t_tracker.get_value()
+        # harm_params = self.harm_param_path(t)
+        harm_params = self.harm_param_curve(t)
+        res = 0
+        for i in range(harm_params.size//2): res += harm_params[i] * cos(i*x)
+        for i in range(harm_params.size//2, harm_params.size): res += harm_params[i] * sin(i*x)
+        return res
+
+    def nn(self, x):
+        t = self.t_tracker.get_value()
+        # harm_params = self.harm_param_path(t)
+        params = self.nn_param_curve(t)
+        N = self.nn_N
+        assert  len(params) == N + N**2 + N, len(params)
+        A_1 = params[:N]
+        A_2 = params[N:N**2+N].reshape([N,N])
+        A_3 = params[N**2+N:]
+        if self.X:
+            print(A_1)
+            print(A_2)
+            print(A_3)
+            self.X = False
+        h = np.tanh(x * A_1)
+        h = np.tanh(A_2.dot(h))
+        res = np.tanh(A_3.dot(h))
+        return res
+
+    def separator(self, title):
+        line = Line(5*LEFT, 5*RIGHT).set_z_index(1)
+        title = Text(title).scale(0.7).set_z_index(2)
+        box = BackgroundRectangle(title, fill_opacity=1., buff=0.1).set_z_index(1)
+        group = VGroup(line, title, box)
+        return group, AnimationGroup(Create(line), Write(title), FadeIn(box))
+
+    def dt_anim(self, dt):
+        t = self.t_tracker.get_value()
+        return self.t_tracker.animate.set_value(t + dt)
+
     def construct(self):
-        self.parameter_stage = 'wandering'
-        f_eq, p_eq = self.param_equs(2)
-        self.play_dt(Write(f_eq), Write(p_eq),dt=1)
-        self.play_dt()
-        self.play_transform_equs(f_eq, p_eq, 3)
-        self.play_dt(dt=3)
+        self.X = True
+        self.t_tracker = ValueTracker(0)
+        # poly_path_points = np.array([[0.5,2,-1/4], [-1,0, 1/5]])
+        poly_path_points = np.array([[0.5,0.6,0.02, 0.01],
+                                    [1/2,0, -1/17, +0.02]])
+        harm_path_points = np.array([[1/2, 0.8, 1/3, 1/9, 0, -1/9],
+                                    [1/2, 1/10, 1/9, -1/2, 1/18, 1/8]])
+        # nn_path_points = np.array([[1/3,-1/6,-1/10,1,2,1/9,-1/9,1/5]])
+        self.nn_N = 4
+        nn_path_points = np.random.random([3,2*self.nn_N + self.nn_N**2])
+
+        self.poly_param_curve = bezier(poly_path_points)
+        self.harm_param_curve = bezier(harm_path_points)
+        self.nn_param_curve = bezier(nn_path_points)
+
+        # a natural way of rescaling nubmers to make nicer lookng polynomials
+        ax_x_length = 5
+        ax_y_length =  2
+        ax_x_range = [-4, 4]
+        ax_y_range = [-2, 2]
+        up_shift = 2.4
+        right_shift = 3.
+        ax_scale = 1.
+        text_scale = 0.7
+        separator_shift = 1.2
+
+        # POLY
+        self.poly_axes = Axes(x_length=ax_x_length, y_length=ax_y_length, x_range = ax_x_range, y_range=ax_y_range, tips=False).scale(ax_scale).shift(UP*up_shift + RIGHT*right_shift)
+        poly_eq = MathTex(r'p_i &\in \mathbb{R} \\ f(x) &= \sum_{i=0}^n p_i x^i').scale(text_scale).shift(UP*up_shift - RIGHT*right_shift)
+        p_sep, p_sep_anim = self.separator('Polynomial')
+        p_sep.shift(UP*(up_shift+separator_shift) )
+        poly_plot = self.poly_axes.plot(lambda x: self.poly(x), color=BLUE)
+        self.play(Create(self.poly_axes),
+                    Write(poly_eq), p_sep_anim,
+                    Create(poly_plot),
+                    rate_func=linear)
+        poly_plot.add_updater(lambda ob: ob.become(self.poly_axes.plot(lambda x: self.poly(x), color=BLUE)))
+
+        # HARMONIC
+        self.harm_axes = Axes(x_length=ax_x_length, y_length=ax_y_length, x_range = ax_x_range, y_range=ax_y_range, tips=False).scale(ax_scale).shift(RIGHT*right_shift)
+        harm_eq = MathTex(r'a_i, b_i &\in \mathbb{R} \\ f(x) = \sum_{i=0}^n a_i &cos(ix) + b_i sin(ix)').scale(text_scale).shift(- RIGHT*right_shift)
+        h_sep, h_sep_anim = self.separator('Harmonic')
+        h_sep.shift(UP*(separator_shift) )
+        harm_plot = self.harm_axes.plot(lambda x: self.harmonic(x), color=BLUE)
+        self.play(Create(self.harm_axes),
+                    Write(harm_eq), h_sep_anim,
+                    Create(harm_plot),
+                    self.dt_anim(0.2),
+                    rate_func=linear,
+                    run_time=1)
+        harm_plot.add_updater(lambda ob: ob.become(self.harm_axes.plot(lambda x: self.harmonic(x), color=BLUE)))
+
+        # Neural Network
+        self.nn_axes = Axes(x_length=ax_x_length, y_length=ax_y_length, x_range = ax_x_range, y_range=ax_y_range, tips=False).scale(ax_scale).shift(-UP*up_shift+RIGHT*right_shift)
+        nn_eq = MathTex(r'A_1 \in \mathbb{R}^{n,1}, &A_2 \in \mathbb{R}^{n,n}, A_3 \in \mathbb{R}^{1,n} \\  f(x) &= A_3 \sigma( A_2 \sigma(A_1 x))').scale(text_scale).shift(-UP*up_shift - RIGHT*right_shift)
+        n_sep, n_sep_anim = self.separator('3 Layer Neural Network')
+        n_sep.shift(UP*(-up_shift+separator_shift) )
+        nn_plot = self.nn_axes.plot(lambda x: self.nn(x), color=BLUE)
+        self.play(Create(self.nn_axes),
+                    Write(nn_eq), n_sep_anim,
+                    Create(nn_plot),
+                    self.dt_anim(0.2),
+                    rate_func=linear,
+                    run_time=1)
+        nn_plot.add_updater(lambda ob: ob.become(self.nn_axes.plot(lambda x: self.nn(x), color=BLUE)))
+        self.play(self.dt_anim(1.5), run_time=3, rate_func=linear)
+
 
 
 class IntroColorMap(FuncSpaceScene):
@@ -393,7 +525,7 @@ class IntroColorMap(FuncSpaceScene):
         self.dot_grid = []
         for i, params in enumerate(self.param_grid_list):
             grid_losses.append(self.param_loss(params))
-            dot = Dot(axes.c2p(*params),
+            dot = Dot(self.param_axes.c2p(*params),
                         radius = 0.1,
                         fill_opacity=opacity,
                         color=self.loss_line.number_to_color(self.param_loss(params)))
